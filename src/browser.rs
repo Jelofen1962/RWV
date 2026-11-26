@@ -1,4 +1,4 @@
-//! Native password integration. Never inject or collect passwords from a web page.
+
 #[cfg(target_os = "windows")]
 pub fn enable_password_manager(webview: &wry::WebView) -> Result<(), Box<dyn std::error::Error>> {
     use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings4;
@@ -13,7 +13,6 @@ pub fn enable_password_manager(webview: &wry::WebView) -> Result<(), Box<dyn std
     Ok(())
 }
 
-/// Only secure, credential-free web origins can be used as vault keys.
 #[cfg(any(test, target_os = "linux"))]
 fn credential_origin(raw: &str) -> Option<String> {
     let url = url::Url::parse(raw).ok()?;
@@ -83,7 +82,6 @@ mod linux {
             let Some(origin) = native.uri().as_deref().and_then(credential_origin) else {
                 message("Passwords are available only on HTTPS websites."); return;
             };
-            // The website cannot invoke this native UI. No passwords enter JavaScript or IPC.
             if Command::new("secret-tool").arg("--version").stdout(Stdio::null()).stderr(Stdio::null()).status().is_err() {
                 message("Install libsecret-tools and start/unlock your desktop Secret Service to use saved passwords."); return;
             }

@@ -84,7 +84,6 @@ try {
         if (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) { throw 'Icon must be a file.' }
         Copy-Item -LiteralPath $resolved -Destination $png
     }
-    # Quick sniff test before Cargo does the heavy lifting.
     $stream = [IO.File]::OpenRead($png)
     try {
         $signature = New-Object byte[] 8

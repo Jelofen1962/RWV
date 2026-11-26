@@ -31,7 +31,6 @@ fn escape_html(value: &str) -> String {
 }
 
 fn splash_html(name: &str) -> String {
-    // Icon first, so an app name that happens to contain a marker stays untouched.
     SPLASH.replace("__APP_ICON__", &STANDARD.encode(SPLASH_ICON))
         .replace("__APP_NAME__", &escape_html(name))
 }
@@ -44,7 +43,6 @@ fn profile_directory(config: &AppConfig, url: &url::Url) -> Result<PathBuf, Box<
         .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")))
         .ok_or("Neither XDG_DATA_HOME nor HOME is set")?;
     let identity = if url.scheme() == "file" { url.as_str().to_owned() } else { url.origin().ascii_serialization() };
-    // Same name + origin = same cookies, even after a rebuild.
     let mut hash = 0xcbf29ce484222325u64;
     for byte in format!("{}\0{}", config.name, identity).bytes() {
         hash ^= byte as u64;
@@ -64,7 +62,6 @@ fn run() -> Result<(), Box<dyn Error>> {
     std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", &profile);
     #[cfg(target_os = "windows")]
     if config.trust_http_origin {
-        // Let the dev server use secure-context APIs without nuking browser security.
         let origin = url.origin().ascii_serialization();
         std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", format!("--unsafely-treat-insecure-origin-as-secure={origin}"));
     }
@@ -107,7 +104,6 @@ fn run() -> Result<(), Box<dyn Error>> {
     #[cfg(target_os = "linux")]
     browser::install_password_manager(&webview, window.default_vbox().ok_or("No GTK container")?, &profile.to_string_lossy());
 
-    // No sleeping on the UI thread. Even a slow font CDN can't trap the splash.
     let fallback = Instant::now() + SPLASH_TIMEOUT;
     let mut deadline = fallback;
     let mut splash_loaded = false;
@@ -131,7 +127,6 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
         if !opened && Instant::now() >= deadline {
             opened = true;
-            // Same WebView, same profile. Just swap the splash for the real site.
             if let Err(error) = webview.load_url(url.as_str()) {
                 show_error(&format!("Couldn't open the website.\n\n{error}"));
                 *control_flow = ControlFlow::Exit;

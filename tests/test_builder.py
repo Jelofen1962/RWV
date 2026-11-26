@@ -30,7 +30,6 @@ class BuilderTest(unittest.TestCase):
         for platform in builder.PLATFORMS:
             self.assertIs(self.config(platform)['fullscreen'], False)
             self.assertIs(self.config(platform, fullscreen=True)['fullscreen'], True)
-            # Fullscreen must not change the app identity and wipe sessions.
             self.assertEqual(builder.android_id(self.config(platform)), builder.android_id(self.config(platform, fullscreen=True)))
 
     def test_fullscreen_generated_config_for_each_platform(self):
@@ -169,7 +168,6 @@ class BuilderTest(unittest.TestCase):
 
     def test_android_navigation_bar_api_compatibility(self):
         res = ROOT / 'android/app/src/main/res'
-        # Light navigation bar icons are supported from API 27, not 26.
         for path in res.glob('values*/styles.xml'):
             qualifier = path.parent.name
             api = int(qualifier.rsplit('-v', 1)[1]) if '-v' in qualifier else 23

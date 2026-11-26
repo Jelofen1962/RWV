@@ -1,6 +1,5 @@
 plugins { id 'com.android.application' }
 
-// Created by scripts/build.py before Gradle is invoked.
 def rwv = new Properties()
 def config = rootProject.file('../.webview-build/android/android.properties')
 if (!config.isFile()) { throw new GradleException('Run scripts/build.py --platform android first') }
@@ -14,7 +13,6 @@ android {
     defaultConfig {
         applicationId rwv.getProperty('applicationId')
         minSdk 23
-        // Target 34 for sideloaded apps; not a Play Store publishing configuration.
         targetSdk 34
         versionCode rwv.getProperty('versionCode').toInteger()
         versionName rwv.getProperty('versionName')
@@ -39,7 +37,6 @@ android {
     buildTypes {
         release {
             minifyEnabled false
-            // Installable sideload build, not a Play Store release signing key.
             signingConfig = signingPath ? signingConfigs.customRelease : signingConfigs.debug
         }
     }

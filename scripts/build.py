@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared platform preparation, local building and artifact packaging for RWV."""
+
 import argparse
 import base64
 import hashlib
@@ -68,7 +68,6 @@ def safe_filename(name):
     value = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', name).strip(' .')[:75].rstrip(' .') or 'WebViewApp'
     if re.match(r'(?i)^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)', value):
         value = '_' + value
-    # Keep under Windows and Linux path component byte limits, even with Unicode.
     return value.encode('utf-8')[:150].decode('utf-8', 'ignore').rstrip(' .') or 'WebViewApp'
 
 
@@ -97,11 +96,6 @@ def read_icon(source):
 
 
 def fetch_poppins():
-    """Optional build-time font embedding, from the official Google Fonts repository.
-
-    No downloaded font is required to build: a failed fetch leaves the HTTPS CDN
-    stylesheet and system fallback in place. Include the OFL with embedded fonts.
-    """
     base = 'https://raw.githubusercontent.com/google/fonts/main/ofl/poppins/'
     def fetch(filename, limit):
         request = urllib.request.Request(base + filename, headers={'User-Agent': 'RWV builder'})
@@ -127,8 +121,6 @@ def fetch_poppins():
 
 def android_splash(name, icon_path, bundle_fonts=False):
     template = (ROOT / 'src/ui/splash.html').read_text(encoding='utf-8')
-    # Keep the exact desktop markup and CSS. Android's separate splash WebView
-    # supports HTTPS fonts; optionally embed them so cold launches work offline.
     template = template.replace('font-src https://fonts.gstatic.com;', 'font-src data: https://fonts.gstatic.com;')
     license_text = None
     if bundle_fonts:
@@ -162,7 +154,6 @@ def prepare(args, bundle_fonts=False):
         (res / 'values').mkdir(parents=True, exist_ok=True)
         (res / 'drawable-nodpi').mkdir(parents=True, exist_ok=True)
         assets.mkdir(parents=True, exist_ok=True)
-        # Android's resource parser requires quotes around literal strings, including apostrophes.
         resources = ET.Element('resources')
         ET.SubElement(resources, 'string', name='app_name', translatable='false', formatted='false').text = '"' + config['name'].replace("'", "\\'") + '"'
         ET.ElementTree(resources).write(res / 'values' / 'rwv.xml', encoding='utf-8', xml_declaration=True)
@@ -198,7 +189,6 @@ def build(args):
             raise RuntimeError('Install Gradle 8.9 and JDK 17, with Android SDK 35 / build tools 35.0.0')
         env = dict(os.environ)
         env.pop('RWV_ANDROID_KEYSTORE_PATH', None)
-        # Optional durable signing key; the default is a throwaway debug key for sideloading.
         signing = ('RWV_ANDROID_KEYSTORE_BASE64', 'RWV_ANDROID_KEYSTORE_PASSWORD', 'RWV_ANDROID_KEY_ALIAS', 'RWV_ANDROID_KEY_PASSWORD')
         supplied = [bool(env.get(key)) for key in signing]
         if any(supplied) and not all(supplied):

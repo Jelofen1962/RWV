@@ -17,7 +17,6 @@ fn fit_icon(source: &RgbaImage, size: u32) -> RgbaImage {
 fn u16le(out: &mut Vec<u8>, n: u16) { out.extend(n.to_le_bytes()); }
 fn u32le(out: &mut Vec<u8>, n: u32) { out.extend(n.to_le_bytes()); }
 
-// Old-school ICO frames. Windows resource tools like these.
 fn icon_frame(image: &RgbaImage) -> Vec<u8> {
     let n = image.width();
     let mask_stride = ((n + 31) / 32) * 4;
@@ -92,7 +91,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let out = PathBuf::from(env::var_os("OUT_DIR").ok_or("Missing OUT_DIR")?);
     fs::write(out.join("app-config.json"), config_bytes)?;
 
-    // A .png filename alone doesn’t make it a PNG.
     let image = image::io::Reader::with_format(io::BufReader::new(fs::File::open(icon_path)?), image::ImageFormat::Png).decode()?.to_rgba8();
     fs::write(out.join("window-icon.rgba"), fit_icon(&image, 64).into_raw())?;
     fit_icon(&image, 256).save_with_format(out.join("splash-icon.png"), image::ImageFormat::Png)?;

@@ -1,5 +1,4 @@
 (() => {
-  // One little signature per document. No DOM edits, no calls home.
   try {
     if (window.top !== window.self) return;
     const font = 'font-family:Poppins,Segoe UI,sans-serif;';
@@ -13,6 +12,5 @@
     console.log('Phone     +98 910 972 1962');
     console.groupEnd();
   } catch (_) {
-    // Some pages do weird things with console. Not our problem.
   }
 })();

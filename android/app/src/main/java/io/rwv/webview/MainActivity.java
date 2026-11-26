@@ -85,7 +85,6 @@ public final class MainActivity extends Activity {
             webView = new WebView(this);
             root.addView(webView, new FrameLayout.LayoutParams(-1, -1));
             configureWebView(webView, signature, null);
-            // No app toolbar or reserved top margin. The website owns the entire content area.
             setContentView(root);
             applyFullscreen();
             if (state != null && webView.restoreState(state) != null) return;
@@ -143,8 +142,6 @@ public final class MainActivity extends Activity {
         openAutofillSettings();
     }
 
-    // Android Back still navigates website history. At its root (or via a hardware
-    // Menu key) these native options are available without any permanent chrome.
     private void showBrowserMenu() {
         if (webView == null || isFinishing()) return;
         ArrayList<String> labels = new ArrayList<>();
@@ -214,11 +211,10 @@ public final class MainActivity extends Activity {
         WebSettings settings = view.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
-        // Honor responsive viewport declarations and normal HTTPS CDN resources.
         settings.setUseWideViewPort(true);
         settings.setLoadWithOverviewMode(true);
         settings.setBlockNetworkLoads(false);
-        settings.setDatabaseEnabled(true); // Legacy WebSQL only where the engine still supports it.
+        settings.setDatabaseEnabled(true);
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
@@ -231,10 +227,8 @@ public final class MainActivity extends Activity {
         settings.setDisplayZoomControls(false);
         CookieManager cookies = CookieManager.getInstance();
         cookies.setAcceptCookie(true);
-        // Keep the modern target-SDK third-party cookie default; do not weaken privacy globally.
         cookies.setAcceptThirdPartyCookies(view, getPreferences(MODE_PRIVATE).getBoolean("thirdPartyCookies", false));
         if (Build.VERSION.SDK_INT >= 26) {
-            // Let the OS/provider discover virtual HTML fields and manage its own save/fill UI.
             view.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_YES);
         }
         WebView.setWebContentsDebuggingEnabled(false);
@@ -375,7 +369,6 @@ public final class MainActivity extends Activity {
                 try {
                     DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
                     if (agent != null) request.addRequestHeader("User-Agent", agent);
-                    // DownloadManager follows redirects; never forward session cookies or authorization headers.
                     request.setTitle(name).setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
                     if (mime != null && !mime.isEmpty()) request.setMimeType(mime);
                     request.setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, System.currentTimeMillis() + "-" + name);
@@ -412,8 +405,6 @@ public final class MainActivity extends Activity {
                 }
             }
         });
-        // The splash is a separate, script-free WebView. The synthetic HTTPS base
-        // allows normal CDN font CORS and avoids adding splash pages to site history.
         root.addView(splash, new FrameLayout.LayoutParams(-1, -1));
         splash.loadDataWithBaseURL("https://rwv.invalid/", readAsset("splash.html"), "text/html", "UTF-8", null);
         handler.postDelayed(splashTimeout, SPLASH_MAX_MS);
