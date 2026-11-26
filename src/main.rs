@@ -1,6 +1,7 @@
 #![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
 
 mod config;
+mod browser;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use config::AppConfig;
 use std::{error::Error, path::PathBuf, time::{Duration, Instant}};
@@ -79,7 +80,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         .build(&event_loop)?;
     let splash = splash_html(&config.name);
     #[cfg(target_os = "linux")]
-    let mut web_context = WebContext::new(Some(profile));
+    let mut web_context = WebContext::new(Some(profile.clone()));
     #[cfg(target_os = "linux")]
     let builder = WebViewBuilder::with_web_context(&mut web_context);
     #[cfg(target_os = "windows")]
@@ -97,6 +98,13 @@ fn run() -> Result<(), Box<dyn Error>> {
     let webview = builder.build(&window)?;
     #[cfg(target_os = "linux")]
     let webview = builder.build_gtk(window.default_vbox().ok_or("No GTK container")?)?;
+
+    #[cfg(target_os = "windows")]
+    if let Err(error) = browser::enable_password_manager(&webview) {
+        eprintln!("Native autofill unavailable: {error}");
+    }
+    #[cfg(target_os = "linux")]
+    browser::install_password_manager(&webview, window.default_vbox().ok_or("No GTK container")?, &profile.to_string_lossy());
 
     // No sleeping on the UI thread. Even a slow font CDN can't trap the splash.
     let fallback = Instant::now() + SPLASH_TIMEOUT;

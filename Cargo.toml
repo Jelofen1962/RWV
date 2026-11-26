@@ -27,3 +27,11 @@ opt-level = "s"
 lto = "thin"
 codegen-units = 1
 strip = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+webview2-com = "0.33"
+windows-core = "0.58"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+webkit2gtk = "2.0"

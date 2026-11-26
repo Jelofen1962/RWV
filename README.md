@@ -36,7 +36,8 @@ I wanted something simple for local dev servers, personal tools and web dashboar
 | ✨ | White startup screen with your icon and app name (Poppins on desktop) |
 | 🌐 | HTTP, HTTPS, localhost, LAN servers and local `file:///` pages (desktop only for local files) |
 | 💾 | Persistent cookies, browser storage and a separate profile per app identity |
-| 🛠️ | Desktop DevTools, Windows zoom shortcuts and native web engines; Android Back navigation and file picker |
+| 🔑 | Windows native password saving, Android system Autofill and a Linux system-keyring login manager |
+| 🛠️ | Desktop DevTools and native web engines; Android navigation, file picker, downloads, zoom and permission prompts |
 | 📦 | An EXE, Linux archive or APK, with name, version and icon compiled in |
 | ☁️ | Manual GitHub Actions build with Windows, Linux and Android checkboxes |
 
@@ -136,7 +137,7 @@ No compiler installed? GitHub can build for Windows, Linux and Android for you.
 | Linux x64 | `.tar.gz` | `RWV-linux-x64-<run-id>` |
 | Android (API 23+) | `.apk` | `RWV-android-universal-<run-id>` |
 
-The workflow validates inputs, runs tests and builds the selected platforms independently. It checks Windows metadata, Linux dependencies and Android APK signatures before uploading artifacts for 30 days. Android SDK setup and license acceptance are handled by the workflow. GitHub artifacts are downloaded as ZIPs.
+The workflow validates inputs, runs tests and builds the selected platforms independently. It checks Windows metadata, Linux dependencies and Android APK signatures before uploading artifacts for 30 days. Android SDK setup and license acceptance are handled directly by the workflow using the current SDK command-line tools; the obsolete `tools` package is not requested. GitHub artifacts are downloaded as ZIPs.
 
 **Local URLs are fine.** GitHub doesn't need to visit the website you're packaging. Your device opens it when you launch the app. An icon URL, on the other hand, has to be accessible to the runner. For an offline icon, commit the PNG to the repo and enter its relative path. Don't put secrets in workflow inputs or URLs. On a physical Android device, use your computer's reachable LAN IP instead of `localhost` (or `10.0.2.2` on the Android emulator).
 
@@ -168,7 +169,13 @@ This does not encrypt traffic, bypass TLS certificate validation or CORS, grant 
 <details>
 <summary><b>Browser stuff and persistent sessions</b></summary>
 
-The native web engines support JavaScript, browser storage, WebSockets, fetch and forms. Android also supports system Back navigation and the system file picker. Device permissions, downloads, popups, DRM, screen sharing, WebAuthn and other special features remain subject to the native webview, the website and OS policies; RWV is not a complete Edge browser or a permissions bypass. There is no privileged JS-to-native bridge.
+The native web engines support JavaScript, cookies, localStorage, sessionStorage, IndexedDB, HTTP cache, WebSockets, fetch, forms, file uploads, and service workers / Cache Storage where supported by the installed engine and the website's security context. Storage quotas, eviction, private browsing rules, cookie policies and server-side session expiration still apply. `sessionStorage` and session cookies are not guaranteed to survive a closed window or process. RWV does not rewrite cookies, copy login tokens or bypass website logout.
+
+- **Windows:** the WebView2 native password autosave and general Autofill settings are enabled if the installed runtime supports them. The engine manages saving prompts and credential protection; availability is subject to its policies. Update WebView2 Evergreen if these features are unavailable.
+- **Linux:** install `libsecret-tools` and ensure a Secret Service keyring is available and unlocked. Click the native **Passwords** button on an HTTPS page to save, forget, or copy a username/password for the current exact origin and app profile. One login per origin is supported. Copy/paste is manual (not automatic form capture); clipboard contents are cleared after 45 seconds if unchanged. Clipboard history tools may retain copies. The website cannot invoke the password manager.
+- **Android:** on Android 8/API 26 or later, select a compatible system Autofill provider (such as a password manager) in Android settings. Tap a website login field to use that provider's save/fill interface. RWV does not implement its own password database. The browser options menu provides Back, Forward, Reload, system browser, optional third-party cookies, Autofill setup and a website-data reset. Third-party cookies default off; enable only for sites that need them. Camera, microphone and location are requested only with explicit user consent, Android permission checks and a matching HTTPS origin. User-initiated popups use a separate WebView sharing the app's profile. The file picker and confirmed ordinary HTTP(S) downloads are supported; Android DownloadManager does not receive session cookies, so authenticated downloads, blob URLs and POST downloads may require the system browser.
+
+Device permissions on desktop, DRM, extensions, screen sharing, passkeys/WebAuthn, push notifications, downloads, external protocols and other special features remain subject to the native webview, website and OS policies. RWV is not a full Chrome/Edge/Firefox replacement or a permissions bypass. No privileged JS-to-native bridge or custom password interception is added.
 
 Profiles live in `%LOCALAPPDATA%\RustWebViewApps\<identity>\WebView2`. The legacy folder name keeps sessions from earlier builder versions intact. Rebuild with the same app name and origin to keep cookies; changing either creates a separate profile. For `file:///` apps, the full URL is used. Close all instances before deleting a profile or changing browser flags for that profile. Linux profiles live in `$XDG_DATA_HOME/RustWebViewApps/<identity>/WebKitGTK` (or `~/.local/share` if unset); Android uses private app storage.
 
@@ -208,7 +215,7 @@ RWV/
 ├── .github/workflows/    # build, test, upload
 ├── docs/                # README artwork
 ├── icons/               # sample PNG
-├── android/             # native Android WebView app
+├── android/             # native Android WebView app and browser policy tests
 ├── scripts/build.py     # shared platform builder
 ├── tests/               # shared builder tests
 ├── requirements-build.txt
@@ -216,6 +223,7 @@ RWV/
 │   ├── ui/
 │   │   ├── console.js   # little creator signature
 │   │   └── splash.html  # startup screen
+│   ├── browser.rs       # native password integrations
 │   ├── config.rs        # config validation
 │   └── main.rs          # native window + webview
 ├── build.cmd            # double-click to build

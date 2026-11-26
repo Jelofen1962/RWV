@@ -7,3 +7,7 @@ This is a dynamically linked x86_64 (or labeled ARM64) executable, not an AppIma
 Other distributions need compatible GTK, WebKitGTK and glibc libraries.
 Cookies and storage live in $XDG_DATA_HOME/RustWebViewApps (or ~/.local/share).
 The icon is included for optional desktop shortcut creation.
+Optional password vault: sudo apt install libsecret-tools
+A running, unlocked desktop Secret Service (e.g. GNOME Keyring or KWallet with
+Secret Service integration) is required. Use the native Passwords button on an
+HTTPS page. Logins are stored in the system keyring, not a plaintext RWV file.
