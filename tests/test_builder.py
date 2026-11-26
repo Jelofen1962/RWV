@@ -5,6 +5,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import json
+import shutil
+import base64
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,12 +16,34 @@ spec.loader.exec_module(builder)
 
 
 class BuilderTest(unittest.TestCase):
-    def config(self, platform='android', name='Test & App', version='1.2.3', url='https://example.com/dashboard', trust=False, app_id='', version_code=1):
-        return builder.validate(name, version, url, trust, platform, app_id, version_code)
+    def config(self, platform='android', name='Test & App', version='1.2.3', url='https://example.com/dashboard', trust=False, app_id='', version_code=1, fullscreen=False):
+        return builder.validate(name, version, url, trust, platform, app_id, version_code, fullscreen)
 
     def test_all_platforms(self):
         for platform in builder.PLATFORMS:
             self.assertEqual(self.config(platform)['version'], '1.2.3')
+
+    def test_fullscreen_config_for_all_platforms(self):
+        for platform in builder.PLATFORMS:
+            self.assertIs(self.config(platform)['fullscreen'], False)
+            self.assertIs(self.config(platform, fullscreen=True)['fullscreen'], True)
+            # Fullscreen must not change the app identity and wipe sessions.
+            self.assertEqual(builder.android_id(self.config(platform)), builder.android_id(self.config(platform, fullscreen=True)))
+
+    def test_fullscreen_generated_config_for_each_platform(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'src/ui').mkdir(parents=True)
+            for file in ('console.js', 'splash.html'):
+                shutil.copyfile(ROOT / 'src/ui' / file, root / 'src/ui' / file)
+            for platform in builder.PLATFORMS:
+                for enabled in (False, True):
+                    args = argparse.Namespace(platform=platform, name='App', version='1', url='https://example.com', trust_http=False, android_id='', android_version_code=1, fullscreen=enabled, icon=str(ROOT / 'icons/example.png'))
+                    with patch.object(builder, 'ROOT', root):
+                        config, path, _ = builder.prepare(args)
+                    self.assertIs(json.loads(path.read_text())['fullscreen'], enabled)
+                    if platform == 'android':
+                        self.assertIs(json.loads((path.parent / 'generated/assets/config.json').read_text())['fullscreen'], enabled)
 
     def test_file_url_desktop_only(self):
         for platform in ('windows', 'linux'):
@@ -66,18 +90,57 @@ class BuilderTest(unittest.TestCase):
             root = Path(tmp)
             (root / 'src/ui').mkdir(parents=True)
             (root / 'src/ui/console.js').write_text('console.log("test")')
-            args = argparse.Namespace(platform='android', name="Test's & App", version='1.2', url='http://10.0.2.2:3355', trust_http=False, android_id='com.example.test', android_version_code=4, icon=str(ROOT / 'icons/example.png'))
+            shutil.copyfile(ROOT / 'src/ui/splash.html', root / 'src/ui/splash.html')
+            args = argparse.Namespace(platform='android', name="Test's & App", version='1.2', url='http://10.0.2.2:3355', trust_http=False, android_id='com.example.test', android_version_code=4, fullscreen=True, icon=str(ROOT / 'icons/example.png'))
             with patch.object(builder, 'ROOT', root):
                 config, path, icon = builder.prepare(args)
                 self.assertEqual(json.loads(path.read_text()), config)
+                self.assertTrue(config['fullscreen'])
                 generated = root / '.webview-build/android/generated'
                 self.assertTrue((generated / 'assets/config.json').exists())
                 self.assertTrue((generated / 'assets/console.js').exists())
+                splash = (generated / 'assets/splash.html').read_text()
+                self.assertIn('Test&#x27;s &amp; App', splash)
+                self.assertIn('powered by <strong>Jelofen1962</strong>', splash)
+                self.assertIn('font-src data: https://fonts.gstatic.com;', splash)
+                self.assertIn('https://fonts.googleapis.com/css2?', splash)
+                self.assertNotIn('__APP_ICON__', splash)
+                self.assertNotIn('__APP_NAME__', splash)
+                self.assertIn(base64.b64encode(icon.read_bytes()).decode(), splash)
+                self.assertFalse((generated / 'assets/Poppins-OFL.txt').exists())
                 self.assertEqual(ET.parse(generated / 'res/values/rwv.xml').getroot()[0].text, '"Test\\\'s & App"')
                 properties = (path.parent / 'android.properties').read_text()
                 self.assertIn('applicationId=com.example.test\n', properties)
                 self.assertIn('versionCode=4\n', properties)
                 self.assertIn('cleartext=true\n', properties)
+
+    def test_android_embedded_font_and_cdn_fallback(self):
+        css = "@font-face{font-family:'RWV Poppins';src:url(data:font/ttf;base64,AA==)}"
+        license_text = b'SIL OPEN FONT LICENSE'
+        icon = ROOT / 'icons/example.png'
+        with patch.object(builder, 'fetch_poppins', return_value=(css, license_text)):
+            splash, license_result = builder.android_splash('<test>&', icon, True)
+        self.assertEqual(license_result, license_text)
+        self.assertIn(css, splash)
+        self.assertIn("font-family: 'RWV Poppins'", splash)
+        self.assertNotIn('https://fonts.googleapis.com/css2?', splash)
+        self.assertIn('&lt;test&gt;&amp;', splash)
+        with patch.object(builder, 'fetch_poppins', side_effect=OSError('offline')):
+            splash, license_result = builder.android_splash('Offline', icon, True)
+        self.assertIsNone(license_result)
+        self.assertIn('https://fonts.googleapis.com/css2?', splash)
+        self.assertIn('Roboto, sans-serif', splash)
+
+    def test_android_launch_theme(self):
+        res = ROOT / 'android/app/src/main/res'
+        styles = ET.parse(res / 'values-v31/styles.xml').getroot()
+        launch = styles.find("style[@name='LaunchTheme']")
+        self.assertEqual(launch.find("item[@name='android:windowSplashScreenBackground']").text, '#FFFFFF')
+        self.assertEqual(launch.find("item[@name='android:windowSplashScreenAnimatedIcon']").text, '@drawable/rwv_empty_splash')
+        ns = '{http://schemas.android.com/apk/res/android}'
+        self.assertEqual(ET.parse(res / 'drawable/rwv_empty_splash.xml').getroot().find('solid').get(ns + 'color'), '#00000000')
+        manifest = ET.parse(ROOT / 'android/app/src/main/AndroidManifest.xml').getroot()
+        self.assertEqual(manifest.find('application/activity').get(ns + 'theme'), '@style/LaunchTheme')
 
 
 if __name__ == '__main__':

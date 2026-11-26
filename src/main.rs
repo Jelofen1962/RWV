@@ -9,7 +9,7 @@ use tao::{
     dpi::LogicalSize,
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoopBuilder},
-    window::{Icon, WindowBuilder},
+    window::{Fullscreen, Icon, WindowBuilder},
 };
 use wry::{PageLoadEvent, WebViewBuilder};
 #[cfg(target_os = "linux")]
@@ -76,6 +76,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         .with_title(&config.name)
         .with_inner_size(LogicalSize::new(1200.0, 800.0))
         .with_min_inner_size(LogicalSize::new(320.0, 240.0))
+        .with_fullscreen(if config.fullscreen { Some(Fullscreen::Borderless(None)) } else { None })
         .with_window_icon(Some(icon))
         .build(&event_loop)?;
     let splash = splash_html(&config.name);

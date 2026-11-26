@@ -39,7 +39,7 @@ I wanted something simple for local dev servers, personal tools and web dashboar
 | 🔑 | Windows native password saving, Android system Autofill and a Linux system-keyring login manager |
 | 🛠️ | Desktop DevTools and native web engines; Android navigation, file picker, downloads, zoom and permission prompts |
 | 📦 | An EXE, Linux archive or APK, with name, version and icon compiled in |
-| ☁️ | Manual GitHub Actions build with Windows, Linux and Android checkboxes |
+| ☁️ | Manual GitHub Actions build with Windows, Linux, Android and fullscreen checkboxes |
 
 ## ✦ Quick start
 
@@ -105,7 +105,7 @@ sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
 python scripts/build.py --platform android --name 'My Dashboard' --version 1.0.0 --icon icons/example.png --url https://example.com
 ```
 
-Outputs land in `dist/`. GitHub Actions handles these toolchain and SDK setup steps automatically.
+Outputs land in `dist/`. Add `--fullscreen` to the Python builder or `-Fullscreen` to the PowerShell builder to start fullscreen. GitHub Actions handles these toolchain and SDK setup steps automatically.
 
 </details>
 
@@ -127,6 +127,7 @@ No compiler installed? GitHub can build for Windows, Linux and Android for you.
 | `windows` | ☑ Windows (checked by default) |
 | `linux` | ☐ Linux |
 | `android` | ☐ Android |
+| `fullscreen` | ☐ Start in fullscreen on all selected platforms (off by default) |
 | `trust_http_origin` | `false` (Windows only) |
 | `android_id` | Optional package ID; blank = automatic |
 | `android_version_code` | `1` (increase for Android updates) |
@@ -173,7 +174,9 @@ The native web engines support JavaScript, cookies, localStorage, sessionStorage
 
 - **Windows:** the WebView2 native password autosave and general Autofill settings are enabled if the installed runtime supports them. The engine manages saving prompts and credential protection; availability is subject to its policies. Update WebView2 Evergreen if these features are unavailable.
 - **Linux:** install `libsecret-tools` and ensure a Secret Service keyring is available and unlocked. Click the native **Passwords** button on an HTTPS page to save, forget, or copy a username/password for the current exact origin and app profile. One login per origin is supported. Copy/paste is manual (not automatic form capture); clipboard contents are cleared after 45 seconds if unchanged. Clipboard history tools may retain copies. The website cannot invoke the password manager.
-- **Android:** on Android 8/API 26 or later, select a compatible system Autofill provider (such as a password manager) in Android settings. Tap a website login field to use that provider's save/fill interface. RWV does not implement its own password database. The browser options menu provides Back, Forward, Reload, system browser, optional third-party cookies, Autofill setup and a website-data reset. Third-party cookies default off; enable only for sites that need them. Camera, microphone and location are requested only with explicit user consent, Android permission checks and a matching HTTPS origin. User-initiated popups use a separate WebView sharing the app's profile. The file picker and confirmed ordinary HTTP(S) downloads are supported; Android DownloadManager does not receive session cookies, so authenticated downloads, blob URLs and POST downloads may require the system browser.
+- **Android:** on Android 8/API 26 or later, select a compatible system Autofill provider (such as a password manager) in Android settings. The provider handles login-field detection, autofill and save confirmation automatically on supported forms, with its own popup or keyboard suggestions. RWV never collects passwords or stores its own password database. If no provider is enabled, RWV offers a one-time setup dialog. There is no permanent browser toolbar. Android Back navigates history; at the start of history, it opens a native options dialog (also available through the hardware Menu key) for Reload, Forward, external browser, optional third-party cookies, Autofill settings, fullscreen toggle, website-data reset and Exit app. Third-party cookies default off; enable only for sites that need them. Camera, microphone and location are requested only with explicit user consent, Android permission checks and a matching HTTPS origin. User-initiated popups use a separate WebView sharing the app's profile. The file picker and confirmed ordinary HTTP(S) downloads are supported; Android DownloadManager does not receive session cookies, so authenticated downloads, blob URLs and POST downloads may require the system browser.
+
+Fullscreen starts Windows/Linux in borderless native fullscreen and hides Android status and navigation bars (swipe inward from a screen edge to temporarily reveal them). Android always has no RWV toolbar, even with fullscreen off. Use the Android Back/options dialog to exit fullscreen or the app; on desktop use the OS window-close shortcut (such as Alt+F4). Fullscreen does not change the application identity or storage profile.
 
 Device permissions on desktop, DRM, extensions, screen sharing, passkeys/WebAuthn, push notifications, downloads, external protocols and other special features remain subject to the native webview, website and OS policies. RWV is not a full Chrome/Edge/Firefox replacement or a permissions bypass. No privileged JS-to-native bridge or custom password interception is added.
 
@@ -183,7 +186,7 @@ Profiles live in `%LOCALAPPDATA%\RustWebViewApps\<identity>\WebView2`. The legac
 <details>
 <summary><b>The splash and console signature</b></summary>
 
-The desktop startup screen embeds the app's PNG, uses Poppins through Google Fonts and displays **powered by Jelofen1962** at the bottom. It runs in the same webview as the site. A short nonblocking timer opens the configured URL after the splash loads, with a five-second fallback if external font loading stalls. If Google Fonts is unavailable, the desktop uses its fallback font. Android uses a native splash with the same icon, title and creator credit.
+The desktop startup screen embeds the app's PNG, uses Poppins through Google Fonts and displays **powered by Jelofen1962** at the bottom. It runs in the same webview as the site. A short nonblocking timer opens the configured URL after the splash loads, with a five-second fallback if external font loading stalls. If Google Fonts is unavailable, the desktop uses its fallback font. Android uses the same responsive HTML splash as desktop, in a separate script-free WebView. On Android 12 and newer the mandatory system starting window is white with a transparent icon; the custom splash follows without a second branded screen. The builder attempts to embed Poppins Regular and SemiBold from the Google Fonts repository (with the OFL license in the APK). If the build cannot retrieve them, the splash uses the HTTPS Google Fonts CDN with a Roboto/system fallback. The website begins loading behind the splash, which closes after its minimum display time and the first visible page commit, or after a five-second timeout. Website fonts are separate: valid HTTPS CDN requests are allowed, but site CSP, CORS, TLS, mixed-content rules and network availability still apply.
 
 On desktop, each new top-level web document gets a small styled DevTools console signature with creator links and contact details. It does not edit the target page, add tracking, or send its contents anywhere. DevTools controls its own font availability, so the console's Poppins font-family hint may fall back to the browser's console font. SPA route changes stay in the same document and do not print duplicate signatures. A site can clear or override its console. Android injects the signature after web pages load, with WebView debugging disabled in release builds.
 

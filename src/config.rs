@@ -7,6 +7,8 @@ pub struct AppConfig {
     pub website_url: String,
     #[serde(default)]
     pub trust_http_origin: bool,
+    #[serde(default)]
+    pub fullscreen: bool,
 }
 
 impl AppConfig {
@@ -50,7 +52,14 @@ impl AppConfig {
 mod tests {
     use super::*;
     fn config(url: &str, version: &str) -> AppConfig {
-        AppConfig { name: "Test app".into(), version: version.into(), website_url: url.into(), trust_http_origin: false }
+        AppConfig { name: "Test app".into(), version: version.into(), website_url: url.into(), trust_http_origin: false, fullscreen: false }
+    }
+    #[test]
+    fn fullscreen_defaults_off_and_accepts_true() {
+        let legacy = r#"{"name":"App","version":"1","website_url":"https://example.org"}"#;
+        assert!(!serde_json::from_str::<AppConfig>(legacy).unwrap().fullscreen);
+        let enabled = legacy.replace("}", ",\"fullscreen\":true}");
+        assert!(serde_json::from_str::<AppConfig>(&enabled).unwrap().fullscreen);
     }
     #[test]
     fn accepts_http_and_https() {

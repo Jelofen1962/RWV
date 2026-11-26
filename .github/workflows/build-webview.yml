@@ -37,6 +37,11 @@ on:
         type: boolean
         required: false
         default: false
+      fullscreen:
+        description: 'Start in fullscreen (Windows, Linux and Android)'
+        type: boolean
+        required: false
+        default: false
       trust_http_origin:
         description: 'Windows only: trust the configured HTTP origin for development'
         required: false
@@ -62,6 +67,7 @@ env:
   INPUT_APP_VERSION: ${{ inputs.app_version }}
   INPUT_ICON_SOURCE: ${{ inputs.icon_source }}
   INPUT_WEBSITE_URL: ${{ inputs.website_url }}
+  INPUT_FULLSCREEN: ${{ inputs.fullscreen }}
   INPUT_TRUST_HTTP: ${{ inputs.trust_http_origin }}
   INPUT_ANDROID_ID: ${{ inputs.android_id }}
   INPUT_ANDROID_VERSION_CODE: ${{ inputs.android_version_code }}

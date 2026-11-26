@@ -3,6 +3,7 @@
 import argparse
 import base64
 import hashlib
+import html
 import json
 import os
 from pathlib import Path
@@ -23,7 +24,7 @@ LIMIT = 32 * 1024 * 1024
 PLATFORMS = ('windows', 'linux', 'android')
 
 
-def validate(name, version, website, trust, platform, app_id='', version_code=1):
+def validate(name, version, website, trust, platform, app_id='', version_code=1, fullscreen=False):
     name, version, website = name.strip(), version.strip(), website.strip()
     if not name or len(name) > 150 or any(ord(c) < 32 or ord(c) == 127 or c in '"\\' for c in name):
         raise ValueError('App name must be 1–150 characters, without controls, quotes or backslashes')
@@ -53,7 +54,7 @@ def validate(name, version, website, trust, platform, app_id='', version_code=1)
         if not 1 <= version_code <= 2100000000:
             raise ValueError('Android version code must be 1–2100000000')
     return dict(name=name, version=version, website_url=website,
-                trust_http_origin=bool(trust and platform == 'windows'))
+                trust_http_origin=bool(trust and platform == 'windows'), fullscreen=bool(fullscreen))
 
 
 def android_id(config, override=''):
@@ -97,8 +98,58 @@ def read_icon(source):
         return img.convert('RGBA')
 
 
-def prepare(args):
-    config = validate(args.name, args.version, args.url, args.trust_http, args.platform, args.android_id, args.android_version_code)
+def fetch_poppins():
+    """Optional build-time font embedding, from the official Google Fonts repository.
+
+    No downloaded font is required to build: a failed fetch leaves the HTTPS CDN
+    stylesheet and system fallback in place. Include the OFL with embedded fonts.
+    """
+    base = 'https://raw.githubusercontent.com/google/fonts/main/ofl/poppins/'
+    def fetch(filename, limit):
+        request = urllib.request.Request(base + filename, headers={'User-Agent': 'RWV builder'})
+        with urllib.request.urlopen(request, timeout=10) as response:
+            if urllib.parse.urlsplit(response.geturl()).scheme != 'https':
+                raise ValueError('Font download must use HTTPS')
+            data = response.read(limit + 1)
+        if not data or len(data) > limit:
+            raise ValueError('Invalid font download size')
+        return data
+    license_text = fetch('OFL.txt', 64 * 1024)
+    if b'SIL OPEN FONT LICENSE' not in license_text.upper():
+        raise ValueError('Poppins license not found')
+    rules = []
+    for weight, filename in ((400, 'Poppins-Regular.ttf'), (600, 'Poppins-SemiBold.ttf')):
+        font = fetch(filename, 2 * 1024 * 1024)
+        if font[:4] != b'\x00\x01\x00\x00':
+            raise ValueError('Invalid TrueType font')
+        encoded = base64.b64encode(font).decode('ascii')
+        rules.append(f"@font-face{{font-family:'RWV Poppins';font-style:normal;font-weight:{weight};font-display:swap;src:url(data:font/ttf;base64,{encoded}) format('truetype');}}")
+    return '\n'.join(rules), license_text
+
+
+def android_splash(name, icon_path, bundle_fonts=False):
+    template = (ROOT / 'src/ui/splash.html').read_text(encoding='utf-8')
+    # Keep the exact desktop markup and CSS. Android's separate splash WebView
+    # supports HTTPS fonts; optionally embed them so cold launches work offline.
+    template = template.replace('font-src https://fonts.gstatic.com;', 'font-src data: https://fonts.gstatic.com;')
+    license_text = None
+    if bundle_fonts:
+        try:
+            css, license_text = fetch_poppins()
+            template = template.replace('<link rel="preconnect" href="https://fonts.googleapis.com">', '')
+            template = template.replace('<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>', '')
+            template = re.sub(r'<link href="https://fonts.googleapis.com/[^"\n]+" rel="stylesheet">', '', template)
+            template = template.replace('<style>', '<style>\n' + css, 1)
+            template = template.replace('font-family: Poppins,', "font-family: 'RWV Poppins', Poppins,")
+        except (OSError, ValueError) as error:
+            print(f'Note: Poppins embedding unavailable ({error}); using HTTPS CDN and Android fallback font.')
+    template = template.replace("'Segoe UI', sans-serif", "'Segoe UI', Roboto, sans-serif")
+    template = template.replace('__APP_ICON__', base64.b64encode(icon_path.read_bytes()).decode('ascii'))
+    return template.replace('__APP_NAME__', html.escape(name, quote=True)), license_text
+
+
+def prepare(args, bundle_fonts=False):
+    config = validate(args.name, args.version, args.url, args.trust_http, args.platform, args.android_id, args.android_version_code, args.fullscreen)
     stage = ROOT / '.webview-build' / args.platform
     stage.mkdir(parents=True, exist_ok=True)
     icon = read_icon(args.icon)
@@ -120,6 +171,13 @@ def prepare(args):
         ImageOps.pad(icon, (192, 192), method=Image.Resampling.LANCZOS, color=(0, 0, 0, 0)).save(res / 'drawable-nodpi' / 'rwv_icon.png')
         shutil.copyfile(config_path, assets / 'config.json')
         shutil.copyfile(ROOT / 'src/ui/console.js', assets / 'console.js')
+        splash, license_text = android_splash(config['name'], icon_path, bundle_fonts)
+        (assets / 'splash.html').write_text(splash, encoding='utf-8')
+        license_path = assets / 'Poppins-OFL.txt'
+        if license_text is not None:
+            license_path.write_bytes(license_text)
+        else:
+            license_path.unlink(missing_ok=True)
         properties = dict(applicationId=android_id(config, args.android_id), versionName=config['version'], versionCode=int(args.android_version_code), cleartext=str(urllib.parse.urlsplit(config['website_url']).scheme == 'http').lower())
         (stage / 'android.properties').write_text(''.join(f'{k}={v}\n' for k, v in properties.items()), encoding='ascii')
     if args.trust_http and args.platform != 'windows':
@@ -132,7 +190,7 @@ def run(command, **kwargs):
 
 
 def build(args):
-    config, config_path, icon_path = prepare(args)
+    config, config_path, icon_path = prepare(args, bundle_fonts=args.platform == 'android')
     output = Path(args.output).resolve()
     output.mkdir(parents=True, exist_ok=True)
     base = f"{safe_filename(config['name'])}-{config['version']}-{args.platform}"
@@ -196,6 +254,7 @@ def main():
     parser.add_argument('--icon', default=os.getenv('INPUT_ICON_SOURCE'))
     parser.add_argument('--url', default=os.getenv('INPUT_WEBSITE_URL'))
     parser.add_argument('--trust-http', action='store_true', default=os.getenv('INPUT_TRUST_HTTP', '').lower() == 'true')
+    parser.add_argument('--fullscreen', action=argparse.BooleanOptionalAction, default=os.getenv('INPUT_FULLSCREEN', '').lower() == 'true', help='Start without window chrome or Android system bars')
     parser.add_argument('--android-id', default=os.getenv('INPUT_ANDROID_ID', ''))
     parser.add_argument('--android-version-code', default=os.getenv('INPUT_ANDROID_VERSION_CODE') or '1')
     parser.add_argument('--target')
@@ -209,7 +268,7 @@ def main():
             parser.error(f'--{key} is required')
     try:
         if args.validate_only:
-            validate(args.name, args.version, args.url, args.trust_http, args.platform, args.android_id, args.android_version_code)
+            validate(args.name, args.version, args.url, args.trust_http, args.platform, args.android_id, args.android_version_code, args.fullscreen)
         elif args.prepare_only:
             prepare(args)
         else:

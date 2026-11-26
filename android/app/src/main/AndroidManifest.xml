@@ -9,9 +9,9 @@
     <application android:allowBackup="false" android:label="@string/app_name"
         android:icon="@drawable/rwv_icon" android:theme="@style/AppTheme"
         android:usesCleartextTraffic="${allowCleartext}" android:supportsRtl="true">
-        <activity android:name=".MainActivity" android:exported="true"
+        <activity android:name=".MainActivity" android:exported="true" android:theme="@style/LaunchTheme"
             android:configChanges="orientation|screenSize|keyboardHidden"
-            android:windowSoftInputMode="adjustResize">
+            android:windowSoftInputMode="adjustResize" android:enableOnBackInvokedCallback="false">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

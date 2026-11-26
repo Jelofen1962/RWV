@@ -7,10 +7,13 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Environment;
 import android.os.Message;
+import android.os.SystemClock;
 import android.provider.Settings;
-import android.widget.Button;
-import android.widget.PopupMenu;
 import android.view.View;
+import android.view.KeyEvent;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
+import android.view.autofill.AutofillManager;
 import android.webkit.GeolocationPermissions;
 import android.webkit.PermissionRequest;
 import android.webkit.URLUtil;
@@ -25,7 +28,6 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.view.Gravity;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
 import android.webkit.ValueCallback;
@@ -35,10 +37,6 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
-import android.widget.ImageView;
-import android.widget.LinearLayout;
-import android.widget.ProgressBar;
-import android.widget.TextView;
 import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -54,7 +52,15 @@ public final class MainActivity extends Activity {
     private WebView webView;
     private ValueCallback<Uri[]> fileCallback;
     private FrameLayout root;
-    private LinearLayout splash;
+    private boolean fullscreen;
+    private boolean destroying;
+    private WebView splash;
+    private long splashStarted;
+    private boolean splashReady;
+    private boolean pageReady;
+    private static final long SPLASH_MIN_MS = 1400;
+    private static final long SPLASH_MAX_MS = 5000;
+    private final Runnable splashTimeout = () -> dismissSplash();
 
     private String readAsset(String name) throws Exception {
         try (InputStream in = getAssets().open(name); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
@@ -65,13 +71,13 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
-
     @Override public void onCreate(Bundle state) {
+        setTheme(R.style.AppTheme);
         super.onCreate(state);
         try {
             JSONObject config = new JSONObject(readAsset("config.json"));
             final String url = config.getString("website_url");
+            fullscreen = state == null ? config.optBoolean("fullscreen", false) : state.getBoolean("rwv.fullscreen", config.optBoolean("fullscreen", false));
             final String signature = readAsset("console.js");
             if (!Navigation.isWebUrl(url)) throw new IllegalArgumentException("Invalid website URL");
             root = new FrameLayout(this);
@@ -79,23 +85,12 @@ public final class MainActivity extends Activity {
             webView = new WebView(this);
             root.addView(webView, new FrameLayout.LayoutParams(-1, -1));
             configureWebView(webView, signature, null);
-            Button browserMenu = new Button(this);
-            browserMenu.setText("⋮"); browserMenu.setContentDescription("Browser options");
-            FrameLayout.LayoutParams menuParams = new FrameLayout.LayoutParams(dp(44), dp(48), Gravity.TOP | Gravity.END);
-            // Reserve a narrow top strip so the native menu cannot cover website controls.
-            FrameLayout.LayoutParams pageParams = new FrameLayout.LayoutParams(-1, -1);
-            pageParams.topMargin = dp(48); webView.setLayoutParams(pageParams);
-            root.addView(browserMenu, menuParams);
-            browserMenu.setOnClickListener(v -> showBrowserMenu(browserMenu));
+            // No app toolbar or reserved top margin. The website owns the entire content area.
             setContentView(root);
+            applyFullscreen();
             if (state != null && webView.restoreState(state) != null) return;
-            showSplash(config.getString("name"));
-            handler.postDelayed(() -> {
-                if (isFinishing() || isDestroyed()) return;
-                root.removeView(splash);
-                splash = null;
-                webView.loadUrl(url);
-            }, 1400);
+            showSplash();
+            webView.loadUrl(url);
         } catch (Exception ex) {
             new AlertDialog.Builder(this).setTitle("RWV could not start")
                 .setMessage(ex.getMessage()).setPositiveButton("Close", (d, w) -> finish())
@@ -103,60 +98,113 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void showBrowserMenu(View anchor) {
-        PopupMenu menu = new PopupMenu(this, anchor);
-        menu.getMenu().add(0, 1, 0, "Back").setEnabled(webView.canGoBack());
-        menu.getMenu().add(0, 2, 1, "Forward").setEnabled(webView.canGoForward());
-        menu.getMenu().add(0, 3, 2, "Reload");
-        menu.getMenu().add(0, 4, 3, "Open in system browser");
-        menu.getMenu().add(0, 5, 4, "Allow third-party cookies").setCheckable(true)
-            .setChecked(getPreferences(MODE_PRIVATE).getBoolean("thirdPartyCookies", false));
-        if (Build.VERSION.SDK_INT >= 26) menu.getMenu().add(0, 6, 5, "Set up password Autofill");
-        menu.getMenu().add(0, 7, 6, "Clear website data");
-        menu.setOnMenuItemClickListener(item -> {
-            switch (item.getItemId()) {
-                case 1: if (webView.canGoBack()) webView.goBack(); break;
-                case 2: if (webView.canGoForward()) webView.goForward(); break;
-                case 3: webView.reload(); break;
-                case 4:
-                    if (Navigation.isWebUrl(webView.getUrl())) {
-                        try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(webView.getUrl()))); }
-                        catch (ActivityNotFoundException ex) { showMessage("No browser is installed."); }
-                    }
-                    break;
-                case 5:
-                    boolean enabled = !item.isChecked();
-                    getPreferences(MODE_PRIVATE).edit().putBoolean("thirdPartyCookies", enabled).apply();
-                    CookieManager.getInstance().setAcceptThirdPartyCookies(webView, enabled);
-                    showMessage("Cookie preference saved. Reload the website. Newly opened website windows will also use this setting.");
-                    break;
-                case 6:
-                    if (Build.VERSION.SDK_INT >= 26) {
-                        try { showMessage("In Android settings, search for Autofill or Passwords and choose your password manager. Return to the app and tap a login field."); startActivity(new Intent(Settings.ACTION_SETTINGS)); }
-                        catch (RuntimeException ex) { showMessage("Choose an Autofill provider in your Android system settings."); }
-                    }
-                    break;
-                case 7:
-                    new AlertDialog.Builder(this).setTitle("Clear cookies and website data?")
-                        .setMessage("This clears cookies, supported website storage, cache and history. For a full reset use Android App info > Storage > Clear storage. System Autofill passwords are not removed.")
-                        .setNegativeButton("Cancel", null).setPositiveButton("Clear", (d, w) -> {
-                            for (AlertDialog popup : new HashSet<>(popups)) popup.dismiss();
-                            webView.stopLoading();
-                            android.webkit.WebStorage.getInstance().deleteAllData();
-                            GeolocationPermissions.getInstance().clearAll();
-                            android.webkit.WebViewDatabase.getInstance(this).clearHttpAuthUsernamePassword();
-                            webView.clearCache(true); webView.clearHistory();
-                            CookieManager.getInstance().removeAllCookies(removed -> {
-                                CookieManager.getInstance().flush();
-                                if (!isFinishing() && !isDestroyed()) webView.reload();
-                            });
-                        }).show();
-                    break;
-                default: return false;
+    private void applyFullscreen() {
+        View decor = getWindow().getDecorView();
+        if (Build.VERSION.SDK_INT >= 30) {
+            WindowInsetsController controller = getWindow().getInsetsController();
+            if (controller != null) {
+                controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                if (fullscreen) controller.hide(WindowInsets.Type.systemBars());
+                else controller.show(WindowInsets.Type.systemBars());
             }
-            return true;
-        });
-        menu.show();
+        } else {
+            int mask = View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
+            int flags = decor.getSystemUiVisibility();
+            decor.setSystemUiVisibility(fullscreen ? flags | mask : flags & ~mask);
+        }
+    }
+
+    @Override public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) applyFullscreen();
+    }
+
+    private boolean autofillEnabled() {
+        if (Build.VERSION.SDK_INT < 26) return false;
+        AutofillManager manager = getSystemService(AutofillManager.class);
+        return manager != null && manager.isEnabled();
+    }
+
+    private void openAutofillSettings() {
+        new AlertDialog.Builder(this).setTitle("Password Autofill")
+            .setMessage("Choose a password manager in Android Settings > Passwords or Autofill. The system will offer to save and fill passwords on supported website login forms. RWV never reads or stores your passwords itself.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Settings", (d, w) -> {
+                try { startActivity(new Intent(Settings.ACTION_SETTINGS)); }
+                catch (RuntimeException ex) { showMessage("Choose an Autofill provider in Android system settings."); }
+            }).show();
+    }
+
+    private void offerAutofillSetup() {
+        if (destroying || isFinishing() || isDestroyed() || Build.VERSION.SDK_INT < 26 || autofillEnabled()) return;
+        if (getPreferences(MODE_PRIVATE).getBoolean("autofillSetupOffered", false)) return;
+        getPreferences(MODE_PRIVATE).edit().putBoolean("autofillSetupOffered", true).apply();
+        openAutofillSettings();
+    }
+
+    // Android Back still navigates website history. At its root (or via a hardware
+    // Menu key) these native options are available without any permanent chrome.
+    private void showBrowserMenu() {
+        if (webView == null || isFinishing()) return;
+        ArrayList<String> labels = new ArrayList<>();
+        ArrayList<Integer> ids = new ArrayList<>();
+        if (webView.canGoBack()) { labels.add("Back"); ids.add(1); }
+        if (webView.canGoForward()) { labels.add("Forward"); ids.add(2); }
+        labels.add("Reload"); ids.add(3);
+        labels.add("Open in system browser"); ids.add(4);
+        boolean cookies = getPreferences(MODE_PRIVATE).getBoolean("thirdPartyCookies", false);
+        labels.add((cookies ? "✓ " : "") + "Allow third-party cookies"); ids.add(5);
+        if (Build.VERSION.SDK_INT >= 26) { labels.add("Password Autofill settings"); ids.add(6); }
+        labels.add("Clear website data"); ids.add(7);
+        labels.add(fullscreen ? "Exit fullscreen" : "Enter fullscreen"); ids.add(8);
+        new AlertDialog.Builder(this).setTitle("Browser options")
+            .setItems(labels.toArray(new String[0]), (dialog, which) -> {
+                switch (ids.get(which)) {
+                    case 1: if (webView.canGoBack()) webView.goBack(); break;
+                    case 2: if (webView.canGoForward()) webView.goForward(); break;
+                    case 3: webView.reload(); break;
+                    case 4:
+                        if (Navigation.isWebUrl(webView.getUrl())) {
+                            try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(webView.getUrl()))); }
+                            catch (ActivityNotFoundException ex) { showMessage("No browser is installed."); }
+                        }
+                        break;
+                    case 5:
+                        boolean enabled = !getPreferences(MODE_PRIVATE).getBoolean("thirdPartyCookies", false);
+                        getPreferences(MODE_PRIVATE).edit().putBoolean("thirdPartyCookies", enabled).apply();
+                        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, enabled);
+                        showMessage("Cookie preference saved. Reload the website. Newly opened website windows will also use this setting.");
+                        break;
+                    case 6: openAutofillSettings(); break;
+                    case 7: confirmClearWebsiteData(); break;
+                    case 8: fullscreen = !fullscreen; applyFullscreen(); break;
+                }
+            })
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Exit app", (d, w) -> finish()).show();
+    }
+
+    private void confirmClearWebsiteData() {
+        new AlertDialog.Builder(this).setTitle("Clear cookies and website data?")
+            .setMessage("This clears cookies, supported website storage, cache and history. For a full reset use Android App info > Storage > Clear storage. System Autofill passwords are not removed.")
+            .setNegativeButton("Cancel", null).setPositiveButton("Clear", (d, w) -> {
+                for (AlertDialog popup : new HashSet<>(popups)) popup.dismiss();
+                webView.stopLoading();
+                android.webkit.WebStorage.getInstance().deleteAllData();
+                GeolocationPermissions.getInstance().clearAll();
+                android.webkit.WebViewDatabase.getInstance(this).clearHttpAuthUsernamePassword();
+                webView.clearCache(true); webView.clearHistory();
+                CookieManager.getInstance().removeAllCookies(removed -> {
+                    CookieManager.getInstance().flush();
+                    if (!isFinishing() && !isDestroyed() && webView != null) webView.reload();
+                });
+            }).show();
+    }
+
+    @Override public boolean onKeyUp(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_MENU) { showBrowserMenu(); return true; }
+        return super.onKeyUp(keyCode, event);
     }
     private void showMessage(String message) {
         new AlertDialog.Builder(this).setMessage(message).setPositiveButton("OK", null).show();
@@ -166,6 +214,10 @@ public final class MainActivity extends Activity {
         WebSettings settings = view.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
+        // Honor responsive viewport declarations and normal HTTPS CDN resources.
+        settings.setUseWideViewPort(true);
+        settings.setLoadWithOverviewMode(true);
+        settings.setBlockNetworkLoads(false);
         settings.setDatabaseEnabled(true); // Legacy WebSQL only where the engine still supports it.
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(false);
@@ -182,6 +234,7 @@ public final class MainActivity extends Activity {
         // Keep the modern target-SDK third-party cookie default; do not weaken privacy globally.
         cookies.setAcceptThirdPartyCookies(view, getPreferences(MODE_PRIVATE).getBoolean("thirdPartyCookies", false));
         if (Build.VERSION.SDK_INT >= 26) {
+            // Let the OS/provider discover virtual HTML fields and manage its own save/fill UI.
             view.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_YES);
         }
         WebView.setWebContentsDebuggingEnabled(false);
@@ -191,6 +244,9 @@ public final class MainActivity extends Activity {
             }
             @Override public boolean shouldOverrideUrlLoading(WebView v, String target) {
                 return !Navigation.isWebUrl(target);
+            }
+            @Override public void onPageCommitVisible(WebView v, String target) {
+                if (v == webView) { pageReady = true; maybeDismissSplash(); }
             }
             @Override public void onPageFinished(WebView v, String target) {
                 if (Navigation.isWebUrl(target)) {
@@ -330,30 +386,55 @@ public final class MainActivity extends Activity {
             }).show();
     }
 
-    private void showSplash(String name) {
-        splash = new LinearLayout(this);
-        splash.setOrientation(LinearLayout.VERTICAL);
-        splash.setGravity(Gravity.CENTER);
-        splash.setPadding(dp(24), dp(24), dp(24), dp(24));
+    private void showSplash() throws Exception {
+        splash = new WebView(this);
         splash.setBackgroundColor(Color.WHITE);
-        ImageView image = new ImageView(this);
-        image.setImageResource(R.drawable.rwv_icon);
-        splash.addView(image, new LinearLayout.LayoutParams(dp(96), dp(96)));
-        TextView title = new TextView(this);
-        title.setText(name); title.setGravity(Gravity.CENTER); title.setTextColor(Color.BLACK); title.setTextSize(24);
-        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(-1, -2);
-        titleParams.topMargin = dp(24);
-        splash.addView(title, titleParams);
-        ProgressBar progress = new ProgressBar(this);
-        LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(dp(28), dp(28));
-        progressParams.topMargin = dp(20);
-        splash.addView(progress, progressParams);
-        TextView credit = new TextView(this);
-        credit.setText("powered by Jelofen1962"); credit.setTextColor(Color.DKGRAY); credit.setTextSize(12);
-        LinearLayout.LayoutParams creditParams = new LinearLayout.LayoutParams(-2, -2);
-        creditParams.topMargin = dp(24);
-        splash.addView(credit, creditParams);
+        splash.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+        if (Build.VERSION.SDK_INT >= 26) splash.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);
+        splash.setVerticalScrollBarEnabled(false);
+        splash.setHorizontalScrollBarEnabled(false);
+        WebSettings settings = splash.getSettings();
+        settings.setJavaScriptEnabled(false);
+        settings.setAllowFileAccess(false);
+        settings.setAllowContentAccess(false);
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        settings.setBlockNetworkLoads(false);
+        settings.setUseWideViewPort(true);
+        settings.setTextZoom(100);
+        splash.setWebViewClient(new WebViewClient() {
+            @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest request) { return true; }
+            @Override public boolean shouldOverrideUrlLoading(WebView v, String target) { return true; }
+            @Override public void onPageFinished(WebView v, String target) {
+                if (v == splash && !splashReady) {
+                    splashReady = true;
+                    splashStarted = SystemClock.uptimeMillis();
+                    maybeDismissSplash();
+                }
+            }
+        });
+        // The splash is a separate, script-free WebView. The synthetic HTTPS base
+        // allows normal CDN font CORS and avoids adding splash pages to site history.
         root.addView(splash, new FrameLayout.LayoutParams(-1, -1));
+        splash.loadDataWithBaseURL("https://rwv.invalid/", readAsset("splash.html"), "text/html", "UTF-8", null);
+        handler.postDelayed(splashTimeout, SPLASH_MAX_MS);
+    }
+
+    private void maybeDismissSplash() {
+        if (splash == null || !splashReady || !pageReady) return;
+        long remaining = SPLASH_MIN_MS - (SystemClock.uptimeMillis() - splashStarted);
+        if (remaining > 0) handler.postDelayed(this::maybeDismissSplash, remaining);
+        else dismissSplash();
+    }
+
+    private void dismissSplash() {
+        if (splash == null) return;
+        handler.removeCallbacks(splashTimeout);
+        WebView oldSplash = splash;
+        splash = null;
+        root.removeView(oldSplash);
+        oldSplash.stopLoading();
+        oldSplash.destroy();
+        if (!destroying) handler.post(this::offerAutofillSetup);
     }
 
     @Override protected void onActivityResult(int request, int result, Intent data) {
@@ -364,23 +445,29 @@ public final class MainActivity extends Activity {
         }
     }
     @Override public void onBackPressed() {
+        if (splash != null) { dismissSplash(); return; }
         if (webView != null && webView.canGoBack()) webView.goBack();
-        else super.onBackPressed();
+        else showBrowserMenu();
     }
     @Override protected void onSaveInstanceState(Bundle state) {
+        state.putBoolean("rwv.fullscreen", fullscreen);
         if (webView != null && splash == null) webView.saveState(state);
         super.onSaveInstanceState(state);
     }
     @Override protected void onPause() {
+        if (splash != null) splash.onPause();
         if (webView != null) { webView.onPause(); CookieManager.getInstance().flush(); }
         super.onPause();
     }
     @Override protected void onResume() {
         super.onResume();
+        if (splash != null) splash.onResume();
         if (webView != null) webView.onResume();
     }
     @Override protected void onDestroy() {
+        destroying = true;
         handler.removeCallbacksAndMessages(null);
+        dismissSplash();
         pendingPermission = null;
         if (pendingMediaRequest != null) denyMedia(pendingMediaRequest);
         for (AlertDialog popup : new HashSet<>(popups)) popup.dismiss();

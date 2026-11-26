@@ -5,6 +5,7 @@ param(
     [string]$IconSource,
     [string]$WebsiteUrl,
     [switch]$TrustHttpOrigin,
+    [switch]$Fullscreen,
     [switch]$NonInteractive,
     [switch]$RunTests,
     [ValidateSet('x86_64-pc-windows-msvc', 'aarch64-pc-windows-msvc')]
@@ -50,6 +51,11 @@ if ($webUri.Scheme -eq 'http' -and -not $NonInteractive -and -not $PSBoundParame
 if ($TrustHttpOrigin -and $webUri.Scheme -ne 'http') { throw 'TrustHttpOrigin can only be enabled for an HTTP website.' }
 if ($TrustHttpOrigin) { Write-Warning 'The selected HTTP origin may gain secure-context APIs. Use only trusted development servers; HTTP traffic remains unencrypted.' }
 
+if (-not $NonInteractive -and -not $PSBoundParameters.ContainsKey('Fullscreen')) {
+    $choice = Read-Host 'Start in fullscreen? [y/N]'
+    $Fullscreen = $choice -match '^(?i:y|yes)$'
+}
+
 if (-not (Get-Command cargo -ErrorAction SilentlyContinue) -or -not (Get-Command rustup -ErrorAction SilentlyContinue)) {
     throw 'Rust and rustup are required. Install Rust from https://rustup.rs/ and install Visual Studio Build Tools with Desktop development with C++.'
 }
@@ -88,6 +94,7 @@ try {
         version = $AppVersion
         website_url = $WebsiteUrl
         trust_http_origin = [bool]$TrustHttpOrigin
+        fullscreen = [bool]$Fullscreen
     } | ConvertTo-Json -Compress
     [IO.File]::WriteAllText($configPath, $config, (New-Object System.Text.UTF8Encoding($false)))
     $env:WEBVIEW_APP_CONFIG = $configPath

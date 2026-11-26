@@ -1,9 +1,11 @@
 <resources>
-    <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+    <style name="BaseAppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">#FFFFFF</item>
         <item name="android:colorAccent">#202020</item>
         <item name="android:statusBarColor">#FFFFFF</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:navigationBarColor">#202020</item>
     </style>
+    <style name="AppTheme" parent="BaseAppTheme" />
+    <style name="LaunchTheme" parent="AppTheme" />
 </resources>
