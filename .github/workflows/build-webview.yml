@@ -17,66 +17,195 @@ on:
         description: 'PNG URL or PNG path in this repository'
         required: true
         type: string
+        default: 'icons/example.png'
       website_url:
-        description: 'Website URL (HTTP, HTTPS, or file:/// URL)'
+        description: 'Website URL (HTTP, HTTPS; desktop also supports file:///)'
         required: true
         type: string
+      windows:
+        description: 'Build Windows (.exe, x64)'
+        type: boolean
+        required: false
+        default: true
+      linux:
+        description: 'Build Linux (.tar.gz, x64)'
+        type: boolean
+        required: false
+        default: false
+      android:
+        description: 'Build Android (.apk, universal)'
+        type: boolean
+        required: false
+        default: false
       trust_http_origin:
-        description: 'Opt in to secure-context treatment for the configured HTTP origin (development only)'
+        description: 'Windows only: trust the configured HTTP origin for development'
         required: false
         type: boolean
         default: false
+      android_id:
+        description: 'Android application ID (blank = stable auto-generated ID)'
+        required: false
+        type: string
+        default: ''
+      android_version_code:
+        description: 'Android version code (increase for updates)'
+        required: false
+        type: string
+        default: '1'
 
 permissions:
   contents: read
 
+# Use environment variables rather than interpolating untrusted inputs into shell code.
+env:
+  INPUT_APP_NAME: ${{ inputs.app_name }}
+  INPUT_APP_VERSION: ${{ inputs.app_version }}
+  INPUT_ICON_SOURCE: ${{ inputs.icon_source }}
+  INPUT_WEBSITE_URL: ${{ inputs.website_url }}
+  INPUT_TRUST_HTTP: ${{ inputs.trust_http_origin }}
+  INPUT_ANDROID_ID: ${{ inputs.android_id }}
+  INPUT_ANDROID_VERSION_CODE: ${{ inputs.android_version_code }}
+
 jobs:
-  build:
-    runs-on: windows-latest
-    timeout-minutes: 35
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-      - name: Prepare Rust stable
-        shell: pwsh
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-build.txt
+      - name: Validate selected platforms and run builder tests
+        env:
+          SELECT_WINDOWS: ${{ inputs.windows }}
+          SELECT_LINUX: ${{ inputs.linux }}
+          SELECT_ANDROID: ${{ inputs.android }}
         run: |
-          rustup toolchain install stable --profile minimal --target x86_64-pc-windows-msvc
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Compile customized application
+          python -m unittest discover -s tests -v
+          selected=0
+          for platform in windows linux android; do
+            case "$platform" in
+              windows) enabled="$SELECT_WINDOWS" ;;
+              linux) enabled="$SELECT_LINUX" ;;
+              android) enabled="$SELECT_ANDROID" ;;
+            esac
+            if [ "$enabled" = true ]; then
+              selected=1
+              python scripts/build.py --platform "$platform" --validate-only || exit 1
+            fi
+          done
+          if [ "$selected" = 0 ]; then
+            echo '::error::Select at least one platform in Run workflow.'
+            exit 1
+          fi
+
+  windows:
+    needs: validate
+    if: ${{ inputs.windows }}
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-build.txt
+      - name: Prepare Rust stable
+        run: rustup toolchain install stable --profile minimal --target x86_64-pc-windows-msvc
+      - name: Build and test Windows
         id: compile
         shell: pwsh
-        env:
-          INPUT_APP_NAME: ${{ inputs.app_name }}
-          INPUT_APP_VERSION: ${{ inputs.app_version }}
-          INPUT_ICON_SOURCE: ${{ inputs.icon_source }}
-          INPUT_WEBSITE_URL: ${{ inputs.website_url }}
-          INPUT_TRUST_HTTP: ${{ inputs.trust_http_origin }}
-        run: |
-          $trust = $env:INPUT_TRUST_HTTP -eq 'true'
-          ./build.ps1 -NonInteractive -RunTests `
-            -AppName $env:INPUT_APP_NAME `
-            -AppVersion $env:INPUT_APP_VERSION `
-            -IconSource $env:INPUT_ICON_SOURCE `
-            -WebsiteUrl $env:INPUT_WEBSITE_URL `
-            -TrustHttpOrigin:$trust `
-            -OutputDirectory (Join-Path $env:RUNNER_TEMP 'webview-output')
+        run: python scripts/build.py --platform windows --output "$env:RUNNER_TEMP/webview-output"
       - name: Verify executable metadata
         shell: pwsh
         env:
-          BUILT_EXE: ${{ steps.compile.outputs.exe }}
-          EXPECTED_NAME: ${{ inputs.app_name }}
-          EXPECTED_VERSION: ${{ inputs.app_version }}
+          BUILT_EXE: ${{ steps.compile.outputs.artifact }}
         run: |
           $file = Get-Item -LiteralPath $env:BUILT_EXE
-          if ($file.VersionInfo.ProductName -ne $env:EXPECTED_NAME.Trim()) { throw 'Product name mismatch' }
-          if ($file.VersionInfo.ProductVersion -ne $env:EXPECTED_VERSION.Trim()) { throw 'Product version mismatch' }
+          if ($file.VersionInfo.ProductName -ne $env:INPUT_APP_NAME.Trim()) { throw 'Product name mismatch' }
+          if ($file.VersionInfo.ProductVersion -ne $env:INPUT_APP_VERSION.Trim()) { throw 'Product version mismatch' }
           if ($file.VersionInfo.CompanyName -ne 'Jelofen1962') { throw 'Creator metadata mismatch' }
           if ($file.Length -le 0) { throw 'Executable is empty' }
-          Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256
-      - name: Upload Windows executable
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: RWV-windows-x64-${{ github.run_id }}
-          path: ${{ runner.temp }}/webview-output/*.exe
+          path: ${{ runner.temp }}/webview-output/
+          if-no-files-found: error
+          retention-days: 30
+
+  linux:
+    needs: validate
+    if: ${{ inputs.linux }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-build.txt
+      - name: Install Linux WebView development libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev pkg-config build-essential
+      - name: Prepare Rust stable
+        run: rustup toolchain install stable --profile minimal --target x86_64-unknown-linux-gnu
+      - name: Build and test Linux
+        id: compile
+        run: python scripts/build.py --platform linux --output "$RUNNER_TEMP/webview-output"
+      - name: Check Linux binary and archive
+        env:
+          ARTIFACT: ${{ steps.compile.outputs.artifact }}
+        run: |
+          tar -tzf "$ARTIFACT"
+          file target/x86_64-unknown-linux-gnu/release/rwv
+          ldd target/x86_64-unknown-linux-gnu/release/rwv | tee "$RUNNER_TEMP/rwv-libraries.txt"
+          if grep -q 'not found' "$RUNNER_TEMP/rwv-libraries.txt"; then exit 1; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RWV-linux-x64-${{ github.run_id }}
+          path: ${{ runner.temp }}/webview-output/
+          if-no-files-found: error
+          retention-days: 30
+
+  android:
+    needs: validate
+    if: ${{ inputs.android }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-build.txt
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Install Android SDK components
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Build, lint and test Android
+        id: compile
+        env:
+          RWV_ANDROID_KEYSTORE_BASE64: ${{ secrets.RWV_ANDROID_KEYSTORE_BASE64 }}
+          RWV_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.RWV_ANDROID_KEYSTORE_PASSWORD }}
+          RWV_ANDROID_KEY_ALIAS: ${{ secrets.RWV_ANDROID_KEY_ALIAS }}
+          RWV_ANDROID_KEY_PASSWORD: ${{ secrets.RWV_ANDROID_KEY_PASSWORD }}
+        run: python scripts/build.py --platform android --output "$RUNNER_TEMP/webview-output"
+      - name: Verify APK signature and metadata
+        env:
+          APK: ${{ steps.compile.outputs.artifact }}
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RWV-android-universal-${{ github.run_id }}
+          path: ${{ runner.temp }}/webview-output/
           if-no-files-found: error
           retention-days: 30

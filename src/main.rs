@@ -1,4 +1,4 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
 
 mod config;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
@@ -11,6 +11,8 @@ use tao::{
     window::{Icon, WindowBuilder},
 };
 use wry::{PageLoadEvent, WebViewBuilder};
+#[cfg(target_os = "linux")]
+use {tao::platform::unix::WindowExtUnix, wry::{WebContext, WebViewBuilderExtUnix}};
 
 const CONFIG: &str = include_str!(concat!(env!("OUT_DIR"), "/app-config.json"));
 const ICON_RGBA: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/window-icon.rgba"));
@@ -34,7 +36,12 @@ fn splash_html(name: &str) -> String {
 }
 
 fn profile_directory(config: &AppConfig, url: &url::Url) -> Result<PathBuf, Box<dyn Error>> {
-    let root = std::env::var_os("LOCALAPPDATA").ok_or("LOCALAPPDATA is not set")?;
+    #[cfg(target_os = "windows")]
+    let root = PathBuf::from(std::env::var_os("LOCALAPPDATA").ok_or("LOCALAPPDATA is not set")?);
+    #[cfg(target_os = "linux")]
+    let root = std::env::var_os("XDG_DATA_HOME").filter(|v| !v.is_empty() && PathBuf::from(v).is_absolute()).map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")))
+        .ok_or("Neither XDG_DATA_HOME nor HOME is set")?;
     let identity = if url.scheme() == "file" { url.as_str().to_owned() } else { url.origin().ascii_serialization() };
     // Same name + origin = same cookies, even after a rebuild.
     let mut hash = 0xcbf29ce484222325u64;
@@ -42,7 +49,8 @@ fn profile_directory(config: &AppConfig, url: &url::Url) -> Result<PathBuf, Box<
         hash ^= byte as u64;
         hash = hash.wrapping_mul(0x100000001b3);
     }
-    Ok(PathBuf::from(root).join("RustWebViewApps").join(format!("{hash:016x}")).join("WebView2"))
+    let engine = if cfg!(target_os = "windows") { "WebView2" } else { "WebKitGTK" };
+    Ok(root.join("RustWebViewApps").join(format!("{hash:016x}")).join(engine))
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
@@ -51,7 +59,9 @@ fn run() -> Result<(), Box<dyn Error>> {
     let url = url::Url::parse(&config.website_url)?;
     let profile = profile_directory(&config, &url)?;
     std::fs::create_dir_all(&profile)?;
+    #[cfg(target_os = "windows")]
     std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", &profile);
+    #[cfg(target_os = "windows")]
     if config.trust_http_origin {
         // Let the dev server use secure-context APIs without nuking browser security.
         let origin = url.origin().ascii_serialization();
@@ -68,17 +78,25 @@ fn run() -> Result<(), Box<dyn Error>> {
         .with_window_icon(Some(icon))
         .build(&event_loop)?;
     let splash = splash_html(&config.name);
-    let webview = WebViewBuilder::new()
+    #[cfg(target_os = "linux")]
+    let mut web_context = WebContext::new(Some(profile));
+    #[cfg(target_os = "linux")]
+    let builder = WebViewBuilder::with_web_context(&mut web_context);
+    #[cfg(target_os = "windows")]
+    let builder = WebViewBuilder::new().with_hotkeys_zoom(true);
+    let builder = builder
         .with_html(&splash)
         .with_initialization_script(CONSOLE)
         .with_devtools(true)
-        .with_hotkeys_zoom(true)
         .with_on_page_load_handler(move |event, _url| {
             if matches!(event, PageLoadEvent::Finished) {
                 let _ = proxy.send_event(AppEvent::SplashLoaded);
             }
-        })
-        .build(&window)?;
+        });
+    #[cfg(target_os = "windows")]
+    let webview = builder.build(&window)?;
+    #[cfg(target_os = "linux")]
+    let webview = builder.build_gtk(window.default_vbox().ok_or("No GTK container")?)?;
 
     // No sleeping on the UI thread. Even a slow font CDN can't trap the splash.
     let fallback = Instant::now() + SPLASH_TIMEOUT;
@@ -88,6 +106,8 @@ fn run() -> Result<(), Box<dyn Error>> {
     event_loop.run(move |event, _, control_flow| {
         *control_flow = if opened { ControlFlow::Wait } else { ControlFlow::WaitUntil(deadline) };
         let _keep_window = &window;
+        #[cfg(target_os = "linux")]
+        let _keep_context = &web_context;
         match event {
             Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => {
                 *control_flow = ControlFlow::Exit;
@@ -113,20 +133,28 @@ fn run() -> Result<(), Box<dyn Error>> {
     });
 }
 
+#[cfg(target_os = "windows")]
 #[link(name = "user32")]
 extern "system" {
     fn MessageBoxW(hwnd: isize, text: *const u16, caption: *const u16, kind: u32) -> i32;
 }
 
+#[cfg(target_os = "windows")]
 fn show_error(message: &str) {
     let text: Vec<u16> = message.encode_utf16().chain(Some(0)).collect();
     let title: Vec<u16> = "RWV | Something went wrong".encode_utf16().chain(Some(0)).collect();
     unsafe { MessageBoxW(0, text.as_ptr(), title.as_ptr(), 0x10); }
 }
 
+#[cfg(target_os = "linux")]
+fn show_error(message: &str) {
+    eprintln!("{message}");
+}
+
 fn main() {
     if let Err(error) = run() {
-        show_error(&format!("The app couldn't start.\n\n{error}\n\nCheck that Microsoft Edge WebView2 Evergreen Runtime is installed and the profile folder is writable."));
+        let runtime = if cfg!(target_os = "windows") { "Microsoft Edge WebView2 Evergreen Runtime" } else { "GTK 3 and WebKitGTK 4.1" };
+        show_error(&format!("The app couldn't start.\n\n{error}\n\nCheck that {runtime} is installed and the profile folder is writable."));
         std::process::exit(1);
     }
 }

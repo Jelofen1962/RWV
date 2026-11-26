@@ -1,0 +1,52 @@
+plugins { id 'com.android.application' }
+
+// Created by scripts/build.py before Gradle is invoked.
+def rwv = new Properties()
+def config = rootProject.file('../.webview-build/android/android.properties')
+if (!config.isFile()) { throw new GradleException('Run scripts/build.py --platform android first') }
+config.withInputStream { rwv.load(it) }
+
+def signingPath = System.getenv('RWV_ANDROID_KEYSTORE_PATH')
+
+android {
+    namespace 'io.rwv.webview'
+    compileSdk 35
+    defaultConfig {
+        applicationId rwv.getProperty('applicationId')
+        minSdk 23
+        // Target 34 for sideloaded apps; not a Play Store publishing configuration.
+        targetSdk 34
+        versionCode rwv.getProperty('versionCode').toInteger()
+        versionName rwv.getProperty('versionName')
+        manifestPlaceholders = [allowCleartext: rwv.getProperty('cleartext')]
+    }
+    signingConfigs {
+        if (signingPath) {
+            customRelease {
+                storeFile file(signingPath)
+                storePassword System.getenv('RWV_ANDROID_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('RWV_ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('RWV_ANDROID_KEY_PASSWORD')
+            }
+        }
+    }
+    sourceSets {
+        main {
+            res.srcDir rootProject.file('../.webview-build/android/generated/res')
+            assets.srcDir rootProject.file('../.webview-build/android/generated/assets')
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            // Installable sideload build, not a Play Store release signing key.
+            signingConfig = signingPath ? signingConfigs.customRelease : signingConfigs.debug
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies { testImplementation 'junit:junit:4.13.2' }

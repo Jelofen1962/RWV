@@ -80,8 +80,9 @@ fn required_path(key: &str) -> Result<PathBuf, Box<dyn Error>> {
 
 fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo:rerun-if-changed=src/config.rs");
-    if env::var("CARGO_CFG_TARGET_OS")? != "windows" {
-        return Err("This project targets Windows only".into());
+    let target_os = env::var("CARGO_CFG_TARGET_OS")?;
+    if target_os != "windows" && target_os != "linux" {
+        return Err("Use the Android Gradle project for Android; desktop supports Windows and Linux".into());
     }
     let config_path = required_path("WEBVIEW_APP_CONFIG")?;
     let icon_path = required_path("WEBVIEW_APP_ICON")?;
@@ -93,11 +94,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // A .png filename alone doesn’t make it a PNG.
     let image = image::io::Reader::with_format(io::BufReader::new(fs::File::open(icon_path)?), image::ImageFormat::Png).decode()?.to_rgba8();
-    let ico_path = out.join("app.ico");
-    write_ico(&image, &ico_path)?;
     fs::write(out.join("window-icon.rgba"), fit_icon(&image, 64).into_raw())?;
     fit_icon(&image, 256).save_with_format(out.join("splash-icon.png"), image::ImageFormat::Png)?;
 
+    if target_os != "windows" { return Ok(()); }
+    let ico_path = out.join("app.ico");
+    write_ico(&image, &ico_path)?;
     let [a,b,c,d] = config.version_parts()?;
     let version = ((a as u64) << 48) | ((b as u64) << 32) | ((c as u64) << 16) | d as u64;
     let mut resource = winres::WindowsResource::new();

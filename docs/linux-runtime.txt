@@ -1,0 +1,9 @@
+RWV / Rustmade-WebView by Jelofen1962
+Extract this archive, then run ./rwv from a graphical Linux session.
+Ubuntu 22.04+: install GTK 3 and WebKitGTK 4.1:
+  sudo apt install libgtk-3-0 libwebkit2gtk-4.1-0
+On newer releases, apt may select libgtk-3-0t64 automatically.
+This is a dynamically linked x86_64 (or labeled ARM64) executable, not an AppImage.
+Other distributions need compatible GTK, WebKitGTK and glibc libraries.
+Cookies and storage live in $XDG_DATA_HOME/RustWebViewApps (or ~/.local/share).
+The icon is included for optional desktop shortcut creation.

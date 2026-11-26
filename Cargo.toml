@@ -1,7 +1,7 @@
 [package]
 name = "rwv"
 authors = ["Jelofen1962"]
-description = "Rustmade-WebView: turn a URL into a Windows app"
+description = "Rustmade-WebView: turn a URL into a native desktop app"
 repository = "https://github.com/Jelofen1962/RWV"
 version = "0.1.0"
 edition = "2021"

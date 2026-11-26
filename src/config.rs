@@ -45,3 +45,31 @@ impl AppConfig {
         Ok(result)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn config(url: &str, version: &str) -> AppConfig {
+        AppConfig { name: "Test app".into(), version: version.into(), website_url: url.into(), trust_http_origin: false }
+    }
+    #[test]
+    fn accepts_http_and_https() {
+        assert!(config("http://localhost:3355", "1.0").validate().is_ok());
+        assert!(config("https://example.org", "1.2.3.4").validate().is_ok());
+    }
+    #[test]
+    fn rejects_invalid_versions_and_credentials() {
+        for version in ["", "1..2", "1.2.3.4.5", "65536", "-1"] {
+            assert!(config("https://example.org", version).validate().is_err());
+        }
+        assert!(config("https://user:secret@example.org", "1").validate().is_err());
+    }
+    #[test]
+    fn trust_requires_http() {
+        let mut app = config("https://example.org", "1");
+        app.trust_http_origin = true;
+        assert!(app.validate().is_err());
+        app.website_url = "http://example.org".into();
+        assert!(app.validate().is_ok());
+    }
+}
