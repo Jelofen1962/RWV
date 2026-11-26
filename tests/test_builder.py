@@ -167,6 +167,23 @@ class BuilderTest(unittest.TestCase):
         self.assertIn('https://fonts.googleapis.com/css2?', splash)
         self.assertIn('Roboto, sans-serif', splash)
 
+    def test_android_navigation_bar_api_compatibility(self):
+        res = ROOT / 'android/app/src/main/res'
+        # Light navigation bar icons are supported from API 27, not 26.
+        for path in res.glob('values*/styles.xml'):
+            qualifier = path.parent.name
+            api = int(qualifier.rsplit('-v', 1)[1]) if '-v' in qualifier else 23
+            styles = ET.parse(path).getroot()
+            for item in styles.findall(".//item[@name='android:windowLightNavigationBar']"):
+                self.assertGreaterEqual(api, 27, str(path))
+        base = ET.parse(res / 'values/styles.xml').getroot().find("style[@name='BaseAppTheme']")
+        self.assertEqual(base.find("item[@name='android:navigationBarColor']").text, '#202020')
+        theme = ET.parse(res / 'values-v27/styles.xml').getroot().find("style[@name='AppTheme']")
+        self.assertEqual(theme.get('parent'), 'BaseAppTheme')
+        self.assertEqual(theme.find("item[@name='android:navigationBarColor']").text, '#FFFFFF')
+        self.assertEqual(theme.find("item[@name='android:windowLightNavigationBar']").text, 'true')
+        self.assertFalse((res / 'values-v26/styles.xml').exists())
+
     def test_android_launch_theme(self):
         res = ROOT / 'android/app/src/main/res'
         styles = ET.parse(res / 'values-v31/styles.xml').getroot()
