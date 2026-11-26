@@ -184,27 +184,39 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Set up Android SDK command-line tools
-        uses: android-actions/setup-android@v3
-        with:
-          accept-android-sdk-licenses: true
-      - name: Install Android SDK components
+      - name: Set up Android SDK and install required components
         shell: bash
         run: |
           set -euo pipefail
-          : "${ANDROID_HOME:?Android SDK setup did not set ANDROID_HOME}"
-          SDKMANAGER="$(command -v sdkmanager || true)"
-          if [[ -z "$SDKMANAGER" ]]; then
-            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          mkdir -p "$SDK_ROOT"
+          SDKMANAGER=""
+          if [[ -x "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]]; then
+            SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          else
+            SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -path '*/bin/sdkmanager' -type f 2>/dev/null | sort -V | tail -n 1 || true)"
           fi
           if [[ ! -x "$SDKMANAGER" ]]; then
-            echo '::error::Android SDK command-line tools are missing after setup.'
-            exit 1
+            # Official command-line tools, pinned to a known distribution.
+            TEMP_SDK="$(mktemp -d)"
+            trap 'rm -rf "$TEMP_SDK"' EXIT
+            curl --fail --location --retry 3 --output "$TEMP_SDK/tools.zip" \
+              https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+            unzip -q "$TEMP_SDK/tools.zip" -d "$TEMP_SDK"
+            mkdir -p "$SDK_ROOT/cmdline-tools/rwv-11076708"
+            cp -a "$TEMP_SDK/cmdline-tools/." "$SDK_ROOT/cmdline-tools/rwv-11076708/"
+            SDKMANAGER="$SDK_ROOT/cmdline-tools/rwv-11076708/bin/sdkmanager"
           fi
-          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" 'platforms;android-35' 'build-tools;35.0.0'
-          test -f "$ANDROID_HOME/platforms/android-35/android.jar"
-          test -x "$ANDROID_HOME/build-tools/35.0.0/apksigner"
-          test -x "$ANDROID_HOME/build-tools/35.0.0/aapt"
+          test -x "$SDKMANAGER"
+          export ANDROID_HOME="$SDK_ROOT" ANDROID_SDK_ROOT="$SDK_ROOT"
+          printf 'ANDROID_HOME=%s\nANDROID_SDK_ROOT=%s\n' "$SDK_ROOT" "$SDK_ROOT" >> "$GITHUB_ENV"
+          dirname "$SDKMANAGER" >> "$GITHUB_PATH"
+          # Ignore yes's expected SIGPIPE, but preserve sdkmanager's exit code.
+          (set +o pipefail; yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses)
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" 'platforms;android-35' 'build-tools;35.0.0' 'platform-tools'
+          test -f "$SDK_ROOT/platforms/android-35/android.jar"
+          test -x "$SDK_ROOT/build-tools/35.0.0/apksigner"
+          test -x "$SDK_ROOT/build-tools/35.0.0/aapt"
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
