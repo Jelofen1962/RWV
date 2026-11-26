@@ -71,7 +71,9 @@ python scripts/build.py --platform linux --name 'My App' --version 1.0.0 --icon 
 
 The archive is dynamically linked. Extract it, install runtime libraries (see the included README), then launch `./rwv` from a graphical desktop. It is not an AppImage or a universal static binary. Distribution compatibility depends on system libraries and glibc. The GitHub workflow uses Ubuntu 22.04 to target that baseline. ARM64 can be built on an ARM64 Linux host using `--target aarch64-unknown-linux-gnu` with native dependencies.
 
-For Android, install JDK 17, Gradle 8.9, Android SDK command-line tools, platform 35 and build tools 35.0.0. Make `gradle` available on PATH and configure `ANDROID_HOME`.
+GitHub Actions installs Android command-line tools and accepts SDK licenses using `android-actions/setup-android@v3`, then installs and checks platform 35 and build tools 35.0.0. No manual SDK installation is needed on the hosted runner.
+
+For Android, install JDK 17, Gradle 8.9, Android SDK command-line tools, platform 35 and build tools 35.0.0. Make `gradle` available on PATH and configure `ANDROID_HOME`. For local builds, also put `$ANDROID_HOME/cmdline-tools/latest/bin` on PATH (or invoke `sdkmanager` from its full path).
 
 ```sh
 sdkmanager 'platforms;android-35' 'build-tools;35.0.0'

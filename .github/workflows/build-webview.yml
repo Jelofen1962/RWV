@@ -184,11 +184,30 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Set up Android SDK command-line tools
+        uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
+      - name: Install Android SDK components
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${ANDROID_HOME:?Android SDK setup did not set ANDROID_HOME}"
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if [[ -z "$SDKMANAGER" ]]; then
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          if [[ ! -x "$SDKMANAGER" ]]; then
+            echo '::error::Android SDK command-line tools are missing after setup.'
+            exit 1
+          fi
+          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" 'platforms;android-35' 'build-tools;35.0.0'
+          test -f "$ANDROID_HOME/platforms/android-35/android.jar"
+          test -x "$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          test -x "$ANDROID_HOME/build-tools/35.0.0/aapt"
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Install Android SDK components
-        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
       - name: Build, lint and test Android
         id: compile
         env:
