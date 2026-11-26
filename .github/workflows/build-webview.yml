@@ -43,7 +43,7 @@ on:
         required: false
         default: false
       trust_http_origin:
-        description: 'Windows only: trust the configured HTTP origin for development'
+        description: 'Windows HTTP only: trust origin for development (ignored otherwise)'
         required: false
         type: boolean
         default: false

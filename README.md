@@ -128,7 +128,7 @@ No compiler installed? GitHub can build for Windows, Linux and Android for you.
 | `linux` | ☐ Linux |
 | `android` | ☐ Android |
 | `fullscreen` | ☐ Start in fullscreen on all selected platforms (off by default) |
-| `trust_http_origin` | `false` (Windows only) |
+| `trust_http_origin` | `false` (Windows HTTP only; ignored otherwise) |
 | `android_id` | Optional package ID; blank = automatic |
 | `android_version_code` | `1` (increase for Android updates) |
 
@@ -162,7 +162,7 @@ The workflow validates inputs, runs tests and builds the selected platforms inde
 <details>
 <summary><b>HTTP and local development</b></summary>
 
-Normal HTTP is supported on desktop; Android enables cleartext traffic when the configured URL uses HTTP. On Windows, loopback URLs such as `http://localhost:3000` are generally already treated as potentially trustworthy by Chromium. For trusted non-loopback development servers, enable `-TrustHttpOrigin` (or the workflow checkbox) to pass `--unsafely-treat-insecure-origin-as-secure` for that exact origin and port only.
+Normal HTTP is supported on desktop; Android enables cleartext traffic when the configured URL uses HTTP. On Windows, loopback URLs such as `http://localhost:3000` are generally already treated as potentially trustworthy by Chromium. For trusted non-loopback development servers, enable `-TrustHttpOrigin` (or the workflow checkbox) to pass `--unsafely-treat-insecure-origin-as-secure` for that exact origin and port only. If selected with HTTPS, local files, Linux or Android, the builder automatically ignores this option and continues normally.
 
 This does not encrypt traffic, bypass TLS certificate validation or CORS, grant permissions, or disable sandbox protections. Stick with HTTPS for production. For desktop URLs such as `file:///C:/app/index.html`, the file has to exist on the target computer. Android accepts HTTP(S) URLs only; RWV packages the URL, not the website files.
 

@@ -48,7 +48,10 @@ if ($webUri.Scheme -eq 'http' -and -not $NonInteractive -and -not $PSBoundParame
     $choice = Read-Host 'Treat this HTTP origin as secure for local development APIs? [y/N]'
     $TrustHttpOrigin = $choice -match '^(?i:y|yes)$'
 }
-if ($TrustHttpOrigin -and $webUri.Scheme -ne 'http') { throw 'TrustHttpOrigin can only be enabled for an HTTP website.' }
+if ($TrustHttpOrigin -and $webUri.Scheme -ne 'http') {
+    Write-Warning 'TrustHttpOrigin ignored; it applies only to HTTP URLs.'
+    $TrustHttpOrigin = $false
+}
 if ($TrustHttpOrigin) { Write-Warning 'The selected HTTP origin may gain secure-context APIs. Use only trusted development servers; HTTP traffic remains unencrypted.' }
 
 if (-not $NonInteractive -and -not $PSBoundParameters.ContainsKey('Fullscreen')) {

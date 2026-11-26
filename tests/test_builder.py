@@ -6,6 +6,9 @@ import unittest
 from unittest.mock import patch
 import json
 import shutil
+import subprocess
+import sys
+import os
 import base64
 import xml.etree.ElementTree as ET
 
@@ -54,8 +57,41 @@ class BuilderTest(unittest.TestCase):
     def test_http_trust_only_windows(self):
         for platform in builder.PLATFORMS:
             self.assertEqual(self.config(platform, url='http://localhost:3355', trust=True)['trust_http_origin'], platform == 'windows')
+    def test_trust_ignored_for_https_and_desktop_file_urls(self):
+        for platform in builder.PLATFORMS:
+            for url in ('https://example.com', 'HTTPS://example.com'):
+                with self.subTest(platform=platform, url=url):
+                    self.assertIs(self.config(platform, url=url, trust=True)['trust_http_origin'], False)
+        for platform in ('windows', 'linux'):
+            self.assertIs(self.config(platform, url='file:///tmp/index.html', trust=True)['trust_http_origin'], False)
         with self.assertRaises(ValueError):
-            self.config(trust=True)
+            self.config(url='file:///tmp/index.html', trust=True)
+
+    def test_trust_workflow_environment_and_validation(self):
+        env = dict(os.environ, INPUT_APP_NAME='App', INPUT_APP_VERSION='1', INPUT_ICON_SOURCE='icons/example.png', INPUT_WEBSITE_URL='https://example.com', INPUT_TRUST_HTTP='true', INPUT_FULLSCREEN='true', INPUT_ANDROID_ID='', INPUT_ANDROID_VERSION_CODE='1')
+        for platform in builder.PLATFORMS:
+            with self.subTest(platform=platform):
+                result = subprocess.run([sys.executable, str(ROOT / 'scripts/build.py'), '--platform', platform, '--validate-only'], env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('Trust HTTP origin ignored', result.stdout)
+
+    def test_trust_generated_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'src/ui').mkdir(parents=True)
+            for file in ('console.js', 'splash.html'):
+                shutil.copyfile(ROOT / 'src/ui' / file, root / 'src/ui' / file)
+            for platform in builder.PLATFORMS:
+                for url in ('https://example.com', 'http://example.com'):
+                    with self.subTest(platform=platform, url=url):
+                        args = argparse.Namespace(platform=platform, name='App', version='1', url=url, trust_http=True, android_id='', android_version_code=1, fullscreen=True, icon=str(ROOT / 'icons/example.png'))
+                        with patch.object(builder, 'ROOT', root):
+                            config, path, _ = builder.prepare(args)
+                        expected = platform == 'windows' and url.startswith('http:')
+                        self.assertIs(config['trust_http_origin'], expected)
+                        self.assertIs(json.loads(path.read_text())['trust_http_origin'], expected)
+                        if platform == 'android':
+                            self.assertIs(json.loads((path.parent / 'generated/assets/config.json').read_text())['trust_http_origin'], False)
 
     def test_reject_invalid_config(self):
         for args in ({'name':' '}, {'name':'bad\nname'}, {'version':'1.2.3.4.5'}, {'version':'65536'}, {'version':'-1'}, {'url':'https://user:pass@host'}, {'url':'https:///nohost'}, {'url':'https://example.com:99999'}, {'url':'javascript:alert(1)'}, {'url':'https://exa mple.com'}, {'app_id':'bad-id'}, {'version_code':0}):

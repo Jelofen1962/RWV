@@ -42,8 +42,6 @@ def validate(name, version, website, trust, platform, app_id='', version_code=1,
             raise ValueError('Use an absolute local file:/// URL')
     else:
         raise ValueError('Android requires HTTP(S); desktop supports HTTP(S) and absolute file:/// URLs')
-    if trust and url.scheme != 'http':
-        raise ValueError('Trust HTTP origin requires an HTTP URL')
     if platform == 'android':
         try:
             version_code = int(version_code)
@@ -54,7 +52,7 @@ def validate(name, version, website, trust, platform, app_id='', version_code=1,
         if not 1 <= version_code <= 2100000000:
             raise ValueError('Android version code must be 1–2100000000')
     return dict(name=name, version=version, website_url=website,
-                trust_http_origin=bool(trust and platform == 'windows'), fullscreen=bool(fullscreen))
+                trust_http_origin=bool(trust and platform == 'windows' and url.scheme == 'http'), fullscreen=bool(fullscreen))
 
 
 def android_id(config, override=''):
@@ -180,8 +178,8 @@ def prepare(args, bundle_fonts=False):
             license_path.unlink(missing_ok=True)
         properties = dict(applicationId=android_id(config, args.android_id), versionName=config['version'], versionCode=int(args.android_version_code), cleartext=str(urllib.parse.urlsplit(config['website_url']).scheme == 'http').lower())
         (stage / 'android.properties').write_text(''.join(f'{k}={v}\n' for k, v in properties.items()), encoding='ascii')
-    if args.trust_http and args.platform != 'windows':
-        print('Note: secure-context HTTP override is Windows-only; ordinary HTTP still works.')
+    if args.trust_http and not config['trust_http_origin']:
+        print('Note: Trust HTTP origin ignored; it applies only to HTTP URLs on Windows.')
     return config, config_path, icon_path
 
 
@@ -268,7 +266,9 @@ def main():
             parser.error(f'--{key} is required')
     try:
         if args.validate_only:
-            validate(args.name, args.version, args.url, args.trust_http, args.platform, args.android_id, args.android_version_code, args.fullscreen)
+            config = validate(args.name, args.version, args.url, args.trust_http, args.platform, args.android_id, args.android_version_code, args.fullscreen)
+            if args.trust_http and not config['trust_http_origin']:
+                print('Note: Trust HTTP origin ignored; it applies only to HTTP URLs on Windows.')
         elif args.prepare_only:
             prepare(args)
         else:
