@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="440" viewBox="0 0 760 440" role="img" aria-label="Illustration of the RWV white startup screen">
+  <rect x="1" y="1" width="758" height="438" rx="13" fill="#fff" stroke="#ccc"/>
+  <path d="M14 1H746Q759 1 759 14V33H1V14Q1 1 14 1" fill="#f3f3f3"/>
+  <g font-family="Poppins,Segoe UI,Arial,sans-serif">
+    <text x="16" y="22" font-size="12" fill="#333">My Web App</text>
+    <g stroke="#555" stroke-width="1.2"><path d="M645 17h12M684 12h10v10h-10zM724 12l10 10m0-10-10 10"/></g>
+    <rect x="338" y="124" width="84" height="84" rx="20" fill="#151515"/>
+    <path d="M353 143h14l13 32 13-32h14l-19 45h-16z" fill="#fff"/>
+    <path d="M355 192h50" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity=".65"/>
+    <text x="380" y="245" text-anchor="middle" font-size="27" font-weight="600" fill="#171717">My Web App</text>
+    <rect x="358" y="268" width="44" height="3" rx="1.5" fill="#ededed"/><rect x="368" y="268" width="22" height="3" rx="1.5" fill="#242424"/>
+    <text x="380" y="411" text-anchor="middle" font-size="11" fill="#737373">powered by <tspan font-weight="600" fill="#252525">Jelofen1962</tspan></text>
+  </g>
+</svg>

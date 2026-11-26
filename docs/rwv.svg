@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="230" viewBox="0 0 840 230" role="img" aria-labelledby="title desc">
+  <title id="title">RWV | Rustmade-WebView</title><desc id="desc">Minimal black and white RWV project banner, by Jelofen1962</desc>
+  <rect x="1" y="1" width="838" height="228" rx="22" fill="#fff" stroke="#d9d9d9"/>
+  <rect x="41" y="45" width="138" height="138" rx="34" fill="#151515"/>
+  <path d="M65 78h25l15 48 15-48h24l-27 71H92z" fill="#fff"/>
+  <path d="M70 157h82" stroke="#fff" stroke-width="4" stroke-linecap="round" opacity=".65"/>
+  <g font-family="Poppins,Segoe UI,Arial,sans-serif" fill="#171717">
+    <text x="216" y="84" font-size="13" font-weight="600" letter-spacing="4">RUSTMADE-WEBVIEW</text>
+    <text x="211" y="139" font-size="62" font-weight="700" letter-spacing="-4">RWV.</text>
+    <text x="216" y="171" font-size="17" fill="#666">Your web, in its own window.</text>
+    <text x="798" y="202" text-anchor="end" font-size="12" fill="#777">by @Jelofen1962</text>
+  </g>
+</svg>
